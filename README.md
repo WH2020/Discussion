@@ -245,6 +245,7 @@ For exact versions, capabilities, and observed boundaries, see the
 | **Long-lived members** | Preserve each member's enduring identity, appearance, responsibilities, and working style so they can rejoin the team across Camps and Tasks. |
 | **Camp collaboration** | Organize shared conversations, long-lived members, Tasks, attachments, and execution state around one objective, reducing the context users must carry between separate windows. |
 | **Role-based collaboration** | Turn paired questioning, document-informed decision-making, code review, and group discussion into repeatable ways for a team to work together. |
+| **Local discussion scenes** | Organize algorithm, PRD, software architecture, and prototype reviews with built-in or custom viewpoints, agendas, and deliverables; each scene fills an editable draft that you review before sending. |
 | **Tasks and ownership** | Give ongoing work a title, owner, and state so unfinished work remains trackable and can be picked up by another member. |
 | **Member handoffs** | Use @mentions, the default Lead, direct replies, and A2A routing to pass questions, conclusions, and next actions to the right member. |
 | **Visible execution** | Inspect tool calls, process state, intermediate results, and final delivery in an independent execution console instead of hiding real work behind a single completion message. |
@@ -305,7 +306,7 @@ What matters is remembering why a choice was made, what remains unresolved, what
 > Detailed guides are currently available in Chinese.
 
 - [**Installation Guide**](docs/guides/installation.md): downloads, first launch, and common issues
-- [**Operations Guide**](docs/guides/operations.md): configuring members, choosing a Runtime, and setting permissions
+- [**Operations Guide**](docs/guides/operations.md): configuring members, choosing a Runtime, setting permissions, and using engineering discussion scenes
 - [**Architecture Decisions**](docs/decisions/CURRENT.md): current architectural choices and constraints
 - [**Development Environment and Dependencies**](docs/development/environment.md): tools and environment required for local development
 

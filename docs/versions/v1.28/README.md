@@ -1,7 +1,7 @@
 ---
 document_type: version-overview
 version: v1.28
-lifecycle: current
+lifecycle: historical
 authority: version-scope-and-status
 design_status: confirmed
 implementation_status: complete
@@ -19,6 +19,8 @@ last_updated: 2026-08-25
 > 独立 worktree 验收后通过 PR 交付 `main`。
 
 前置版本：[v1.27 Kimi Code + MiniMax M3](../v1.27/README.md)已按冻结时事实转为 historical。
+
+后续版本：[v1.29 本地工程讨论场景](../v1.29/README.md)。
 
 ## 版本目标
 

@@ -61,6 +61,8 @@ import { SafeMarkdown } from './SafeMarkdown'
 import { RuntimeFailureNotice } from './RuntimeFailureNotice'
 import { identityColorToken } from './theme'
 import { availableComposerSkillsForLead } from './composer-skill-picker'
+import { DiscussionSceneLauncher } from './DiscussionSceneLauncher'
+import type { DiscussionSceneOrchestration } from './discussion-scenes'
 import { createStructuredMessageClipboardData } from './structured-message-clipboard'
 import { CampWorldMap } from './CampWorldMap'
 import { projectCampWorldMap } from './camp-world-map-model'
@@ -1158,6 +1160,7 @@ export function CampWorkspace({
 }): JSX.Element {
   const [messageContent, setMessageContent] = useState<StructuredCampMessageContent>([])
   const [composerDraft, setComposerDraft] = useState<CampComposerDraftView | null>(null)
+  const [composerDraftStatus, setComposerDraftStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [preparingAttachments, setPreparingAttachments] = useState<Array<{ id: string; name: string; kind: AttachmentKind }>>([])
   const [failedAttachments, setFailedAttachments] = useState<Array<{ id: string; name: string; kind: AttachmentKind; error: string }>>([])
   const [attachmentDragState, setAttachmentDragState] = useState<AttachmentDragKind | null>(null)
@@ -1174,7 +1177,7 @@ export function CampWorkspace({
     status: 'loading' | 'ready' | 'error'
   }>({ skills: [], groups: [], status: 'loading' })
   const composerEditorRef = useRef<HTMLDivElement>(null)
-  const pendingStarterPromptFocusRef = useRef<string | null>(null)
+  const pendingStarterContentFocusRef = useRef<string | null>(null)
   const composerFileInputRef = useRef<HTMLInputElement>(null)
   const draftSaveTimer = useRef<number | null>(null)
   const campLeaveTimer = useRef<{ campId: string; timer: number } | null>(null)
@@ -1713,6 +1716,7 @@ export function CampWorkspace({
     if (draftCampId.current !== campId) return
     composerDraftRef.current = draft
     setComposerDraft(draft)
+    setComposerDraftStatus('ready')
   }
 
   const queueDraftMutation = (
@@ -2385,6 +2389,9 @@ export function CampWorkspace({
       draftSaveTimer.current = null
     }
     setComposerDraft(null)
+    setComposerDraftStatus('loading')
+    setStarterNotice(null)
+    pendingStarterContentFocusRef.current = null
     composerDraftRef.current = null
     setPreparingAttachments([])
     setFailedAttachments([])
@@ -2405,9 +2412,9 @@ export function CampWorkspace({
     ))
       .then((draft) => {
         if (cancelled || draftCampId.current !== campId) return
-        applyComposerDraft(campId, draft)
         setMessageContent(draft.content)
         draftContent.current = draft.content
+        applyComposerDraft(campId, draft)
       })
       .catch(() => {
         if (!cancelled && draftCampId.current === campId) {
@@ -2424,6 +2431,7 @@ export function CampWorkspace({
           }
           composerDraftRef.current = emptyDraft
           setComposerDraft(emptyDraft)
+          setComposerDraftStatus('error')
         }
       })
     return () => {
@@ -2903,6 +2911,7 @@ export function CampWorkspace({
   }
 
   const changeMessage = (nextContent: StructuredCampMessageContent): void => {
+    setStarterNotice(null)
     setMessageContent(nextContent)
     draftContent.current = nextContent
     if (draftSaveTimer.current !== null) window.clearTimeout(draftSaveTimer.current)
@@ -3093,24 +3102,48 @@ export function CampWorkspace({
     })
   }
 
+  const chooseStarterContent = (
+    content: StructuredCampMessageContent,
+    notice: string | null = null
+  ): void => {
+    pendingStarterContentFocusRef.current = JSON.stringify(content)
+    changeMessage(content)
+    if (notice) setStarterNotice(notice)
+  }
+
   const chooseStarterPrompt = (prompt: string, announceDraft = false): void => {
-    pendingStarterPromptFocusRef.current = prompt
-    changeMessage([{ kind: 'text', text: prompt }])
-    if (announceDraft) setStarterNotice('已填入输入框，可修改后发送')
+    chooseStarterContent(
+      [{ kind: 'text', text: prompt }],
+      announceDraft ? '已填入输入框，可修改后发送' : null
+    )
+  }
+
+  const chooseDiscussionScene = (
+    content: StructuredCampMessageContent,
+    sceneName: string,
+    orchestration: DiscussionSceneOrchestration
+  ): void => {
+    const orchestrationLabel = orchestration === 'campfire'
+      ? '将由负责人组织多人讨论'
+      : orchestration === 'solo'
+        ? '当前将按单人多视角评审'
+        : '已生成结构化讨论提纲'
+    chooseStarterContent(
+      content,
+      `已按“${sceneName}”填入输入框；请补充主题和材料后发送，${orchestrationLabel}`
+    )
   }
 
   useLayoutEffect(() => {
-    const pendingPrompt = pendingStarterPromptFocusRef.current
+    const pendingContent = pendingStarterContentFocusRef.current
     if (
-      pendingPrompt === null
-      || messageContent.length !== 1
-      || messageContent[0].kind !== 'text'
-      || messageContent[0].text !== pendingPrompt
+      pendingContent === null
+      || JSON.stringify(messageContent) !== pendingContent
     ) return
 
     const editor = composerEditorRef.current
     if (!editor) return
-    pendingStarterPromptFocusRef.current = null
+    pendingStarterContentFocusRef.current = null
     editor.focus()
     const selection = window.getSelection()
     const range = document.createRange()
@@ -3770,6 +3803,11 @@ export function CampWorkspace({
                   firstRunCamp={firstRunCamp}
                   starterNotice={starterNotice}
                   onChoosePrompt={chooseStarterPrompt}
+                  composerSkills={composerSkills}
+                  skillCatalogStatus={composerSkillCatalog.status}
+                  composerDraftStatus={composerDraftStatus}
+                  hasExistingDraft={message.trim().length > 0}
+                  onChooseDiscussionScene={chooseDiscussionScene}
                 />
               )}
               </div>
@@ -5836,7 +5874,12 @@ function EmptyCampWelcome({
   agents,
   firstRunCamp,
   starterNotice,
-  onChoosePrompt
+  onChoosePrompt,
+  composerSkills,
+  skillCatalogStatus,
+  composerDraftStatus,
+  hasExistingDraft,
+  onChooseDiscussionScene
 }: {
   snapshot: CampSnapshot
   projectName: string | null
@@ -5844,16 +5887,31 @@ function EmptyCampWelcome({
   firstRunCamp: FirstRunCampContext | null
   starterNotice: string | null
   onChoosePrompt(prompt: string, announceDraft?: boolean): void
+  composerSkills: ReturnType<typeof availableComposerSkillsForLead>
+  skillCatalogStatus: 'loading' | 'ready' | 'error'
+  composerDraftStatus: 'loading' | 'ready' | 'error'
+  hasExistingDraft: boolean
+  onChooseDiscussionScene(
+    content: StructuredCampMessageContent,
+    sceneName: string,
+    orchestration: DiscussionSceneOrchestration
+  ): void
 }): JSX.Element {
   const activeMembers = snapshot.members.filter((member) =>
     member.membershipStatus === 'active' && member.profilePresence === 'present'
   )
+  const discussionMembers = activeMembers.filter((member) => member.leaveRequestedAt === null)
   const lead = activeMembers.find((member) => member.isDefaultLead)
     ?? snapshot.members.find((member) => member.isDefaultLead)
     ?? null
   const projectLabel = snapshot.camp.projectBindingKind === 'quick_chat'
     ? '快速对话'
     : projectName ?? '当前项目'
+  const discussionParticipants = discussionMembers.map((member) => ({
+    displayName: member.displayName,
+    teamRole: member.teamRole || '队员',
+    isDefaultLead: member.agentId === lead?.agentId
+  }))
 
   if (firstRunCamp) {
     const firstMember = activeMembers.find(
@@ -5925,6 +5983,15 @@ function EmptyCampWelcome({
           </button>
         ))}
       </div>
+      <DiscussionSceneLauncher
+        participants={discussionParticipants}
+        composerSkills={composerSkills}
+        skillCatalogStatus={skillCatalogStatus}
+        composerDraftStatus={composerDraftStatus}
+        hasExistingDraft={hasExistingDraft}
+        onApply={onChooseDiscussionScene}
+      />
+      {starterNotice && <p className="discussion-scene-notice" role="status">{starterNotice}</p>}
     </section>
   )
 }

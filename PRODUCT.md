@@ -39,6 +39,9 @@ coordinates them while preserving which facts came from Rovai Core and which cam
 
 - Supported product language includes “Camp”, “队员”, “记忆”, “Agent 运行时” and “快速对话”.
 - SQLite-backed Core facts are authoritative; Renderer pages consume typed, read-only projections.
+- Reusable engineering discussion scenes can organize algorithm, PRD, architecture and prototype reviews.
+  Custom scenes are explicitly device-local Renderer preferences that produce the existing Core-owned
+  Composer Draft; they are not project facts, synchronized templates or a second execution model.
 - Runtime Usage is sparse and source-qualified. Missing fields remain unknown and never become zero.
 - Each Monitoring schema begins at a persistent clean-break collection boundary; older Core runs are
   retained but are not backfilled or included in current Usage denominators.

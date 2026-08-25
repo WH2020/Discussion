@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-camp-workspace
 status: accepted
-last_updated: 2026-08-21
+last_updated: 2026-08-25
 ---
 
 # Camp 会话工作区
@@ -361,8 +361,13 @@ Porcelain Day / Steel Night 语义 token，不引入新的视觉世界，也不�
 
 ## 空 Camp 欢迎状态
 
-空 Camp 显示欢迎图形、真实协作配置摘要和三个只填充 Composer 的起步建议，不显示单行空占位。
-建议不会直接发送、不会创建假消息，也不会改变已保存协作配置。
+普通空 Camp 显示欢迎图形、真实协作配置摘要、三个通用起步建议和一组可复用的
+[工程讨论场景](discussion-scenes.md)，不显示单行空占位。首次训练 Camp 保留专属起步内容，不叠加
+工程场景库。时间线出现消息或已存在 Run 后，整个空状态退出。
+
+起步建议和场景都只填充同一份 Core-owned Composer Draft，不会直接发送、创建假消息、启动 Runtime
+或改变已保存协作配置。场景卡在已有正文时必须先显示覆盖警告；填充后焦点回到 Composer，
+用户可编辑并加入附件后再发送。
 
 ## Camp 右侧详情栏（Inspector）
 
