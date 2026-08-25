@@ -40,6 +40,9 @@ const CODEBUDDY_VERSION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_SHELL_PATH_BYTES: u64 = 64 * 1024;
 const MAX_VERSION_OUTPUT_BYTES: usize = 8 * 1024;
 const GO_BUILD_INFO_MAGIC: &[u8] = b"\xff Go buildinf:";
+#[cfg(any(windows, test))]
+const CLAUDE_CODE_NPM_NATIVE_RELATIVE_PATH: &str =
+    "node_modules/@anthropic-ai/claude-code/bin/claude.exe";
 
 static ACTIVE_RUNTIME_COMMAND_PATH: OnceLock<RwLock<OsString>> = OnceLock::new();
 tokio::task_local! {
@@ -849,9 +852,27 @@ fn push_candidates_for_kind(
                 executable_suffixes,
             );
         }
+        #[cfg(any(windows, test))]
+        push_windows_npm_package_candidates(candidates, &path_or_directory, source, kind);
         return;
     }
     push_concrete_candidate(candidates, path_or_directory, source);
+}
+
+#[cfg(any(windows, test))]
+fn push_windows_npm_package_candidates(
+    candidates: &mut Vec<RuntimeExecutableCandidate>,
+    npm_prefix: &Path,
+    source: InstallationSource,
+    kind: AdapterKind,
+) {
+    if kind == AdapterKind::ClaudeCodeCli {
+        push_concrete_candidate(
+            candidates,
+            npm_prefix.join(CLAUDE_CODE_NPM_NATIVE_RELATIVE_PATH),
+            source,
+        );
+    }
 }
 
 /// Cursor's current CLI reports a date-based build such as
@@ -1024,6 +1045,59 @@ pub fn catalog_entries() -> Vec<BTreeMap<&'static str, &'static str>> {
             ])
         })
         .collect()
+}
+
+#[cfg(test)]
+mod npm_package_tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn windows_npm_claude_native_binary_is_discovered_below_the_prefix() {
+        let npm_prefix =
+            env::temp_dir().join(format!("rovai-claude-npm-discovery-{}", Uuid::new_v4()));
+        let executable = npm_prefix.join(CLAUDE_CODE_NPM_NATIVE_RELATIVE_PATH);
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::write(&executable, b"native Claude Code fixture").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&executable).unwrap().permissions();
+            permissions.set_mode(0o700);
+            fs::set_permissions(&executable, permissions).unwrap();
+        }
+
+        let search = RuntimeSearchEnvironment {
+            generation: 1,
+            path_entries: vec![SearchPathEntry {
+                path: npm_prefix.clone(),
+                sources: vec![SearchPathSource::InheritedPath],
+            }],
+            path_value: npm_prefix.as_os_str().to_os_string(),
+            executable_suffixes: vec![OsString::from(".exe")],
+            created_at: "2026-08-25T00:00:00Z".to_string(),
+            shell_diagnostic: ShellPathDiagnostic {
+                status: ShellPathStatus::Captured,
+                interactive: false,
+                shell_name: None,
+                entry_count: 0,
+                elapsed_millis: 0,
+            },
+        };
+
+        let observation = discover_runtime_path(AdapterKind::ClaudeCodeCli, &search);
+        let expected_path = runtime_visible_path(executable.canonicalize().unwrap())
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(observation.discovery_status, RuntimeDiscoveryStatus::Found);
+        assert_eq!(
+            observation.executable_path.as_deref(),
+            Some(expected_path.as_str())
+        );
+        assert_eq!(observation.source, Some(InstallationSource::InheritedPath));
+
+        fs::remove_dir_all(npm_prefix).unwrap();
+    }
 }
 
 #[cfg(all(test, unix))]
