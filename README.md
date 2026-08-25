@@ -208,7 +208,10 @@ On Windows, after cloning the repository, you can instead double-click
 [`start-rovai.cmd`](start-rovai.cmd). The launcher checks Node.js 24+, pnpm/Corepack and Rust,
 installs the locked frontend dependencies on first use, and then starts the same isolated
 development application as `pnpm dev`. Run `start-rovai.cmd --check` to verify readiness without
-opening the app.
+opening the app. When the Codex standalone installer is present, the launcher pins
+`ROVAI_CODEX_BIN` to `.codex\packages\standalone\current\bin\codex.exe`; the private executable
+inside the Windows Store Codex desktop bundle is intentionally ignored because ordinary desktop
+processes cannot launch it as a CLI runtime.
 
 ---
 

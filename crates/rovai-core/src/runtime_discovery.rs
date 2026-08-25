@@ -361,6 +361,7 @@ impl RuntimeSearchEnvironment {
                 &self.executable_suffixes,
             );
         }
+        candidates.retain(|candidate| runtime_candidate_is_admissible(kind, &candidate.path));
         candidates
     }
 }
@@ -789,6 +790,30 @@ pub fn runtime_visible_path(path: PathBuf) -> PathBuf {
     path
 }
 
+/// The Windows Store desktop bundle contains a private Codex executable that can be
+/// read and fingerprinted from an ordinary process, but Windows denies CreateProcess
+/// outside the packaged app identity. It is not a Codex CLI installation and must not
+/// displace the standalone CLI selected by `ROVAI_CODEX_BIN` or the known install root.
+pub fn runtime_candidate_is_admissible(kind: AdapterKind, path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        if kind == AdapterKind::CodexCli {
+            let normalized = path
+                .to_string_lossy()
+                .replace('/', "\\")
+                .to_ascii_lowercase();
+            let packaged_desktop_binary = normalized.contains("\\windowsapps\\openai.codex_")
+                && normalized.ends_with("\\app\\resources\\codex.exe");
+            let desktop_app_execution_alias =
+                normalized.ends_with("\\appdata\\local\\microsoft\\windowsapps\\codex.exe");
+            return !packaged_desktop_binary && !desktop_app_execution_alias;
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (kind, path);
+    true
+}
+
 fn push_candidates(
     candidates: &mut Vec<RuntimeExecutableCandidate>,
     path_or_directory: PathBuf,
@@ -945,6 +970,7 @@ fn known_runtime_directories() -> Vec<PathBuf> {
     }
     if let Some(user_profile) = env::var_os("USERPROFILE").filter(|value| !value.is_empty()) {
         let user_profile = PathBuf::from(user_profile);
+        result.push(user_profile.join(".codex/packages/standalone/current/bin"));
         result.push(user_profile.join(".cargo/bin"));
         result.push(user_profile.join(".local/bin"));
     }
@@ -1470,5 +1496,29 @@ mod windows_tests {
             version_timeout(AdapterKind::CodexCli),
             Duration::from_secs(2)
         );
+    }
+
+    #[test]
+    fn codex_desktop_bundle_is_not_a_cli_runtime_candidate() {
+        for path in [
+            r"C:\Program Files\WindowsApps\OpenAI.Codex_26.818.5229.0_x64__2p2nqsd0c76g0\app\resources\codex.exe",
+            r"E:\WindowsApps\OpenAI.Codex_26.818.5229.0_x64__2p2nqsd0c76g0\app\resources\codex.exe",
+            r"C:\Users\test\AppData\Local\Microsoft\WindowsApps\codex.exe",
+        ] {
+            assert!(!runtime_candidate_is_admissible(
+                AdapterKind::CodexCli,
+                Path::new(path)
+            ));
+        }
+        assert!(runtime_candidate_is_admissible(
+            AdapterKind::CodexCli,
+            Path::new(r"C:\Users\test\.codex\packages\standalone\current\bin\codex.exe")
+        ));
+        assert!(runtime_candidate_is_admissible(
+            AdapterKind::ClaudeCodeCli,
+            Path::new(
+                r"C:\Program Files\WindowsApps\OpenAI.Codex_26.818.5229.0_x64__2p2nqsd0c76g0\app\resources\codex.exe"
+            )
+        ));
     }
 }

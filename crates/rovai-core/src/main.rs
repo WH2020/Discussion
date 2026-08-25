@@ -186,8 +186,8 @@ use rovai_core::{
     runtime_discovery::{
         RuntimeDiscoveryObservation, RuntimeDiscoveryStatus, RuntimeLaunchPurpose,
         RuntimeSearchEnvironment, catalog_entries, discover_runtime_path, discover_runtime_version,
-        is_executable_file, runtime_launch_allowed, runtime_visible_path,
-        with_runtime_search_environment,
+        is_executable_file, runtime_candidate_is_admissible, runtime_launch_allowed,
+        runtime_visible_path, with_runtime_search_environment,
     },
     runtime_failure::{
         RuntimeFailureError, RuntimeFailureOrigin, RuntimeFailurePhase, RuntimeFailureView,
@@ -1911,7 +1911,9 @@ impl Core {
                     && let Some(installation) = managed_installation
                 {
                     let saved_path = PathBuf::from(&installation.executable_path);
-                    if is_executable_file(&saved_path) {
+                    if runtime_candidate_is_admissible(kind, &saved_path)
+                        && is_executable_file(&saved_path)
+                    {
                         let canonical = canonical_runtime_path(&saved_path);
                         match fingerprint_executable(&canonical) {
                             Ok(fingerprint) => {
@@ -2778,7 +2780,9 @@ impl Core {
             .map(|installation| canonical_runtime_path(Path::new(&installation.executable_path)));
         let mut unresolved_diagnostic = None;
         let mut candidates = Vec::new();
-        if let Some(installation) = existing.as_ref() {
+        if let Some(installation) = existing.as_ref()
+            && runtime_candidate_is_admissible(kind, Path::new(&installation.executable_path))
+        {
             candidates.push((
                 PathBuf::from(&installation.executable_path),
                 installation.source,

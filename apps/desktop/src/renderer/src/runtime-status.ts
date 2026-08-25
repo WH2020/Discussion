@@ -224,6 +224,14 @@ export function memberRuntimePresentation(
   const blockerCodes = new Set(
     agent.runtimeReadiness.blockers.map((blocker) => blocker.code)
   )
+  if (blockerCodes.has('runtime_light_failed')) {
+    return presentation(
+      'unavailable',
+      selectedRuntimeKind === 'codex-cli'
+        ? 'Codex CLI 启动验证失败。请使用可从终端直接运行的独立版 CLI，不要选择 WindowsApps 应用包内的 codex.exe。'
+        : '当前 Agent 运行时启动验证失败，请重新扫描或选择可直接执行的 CLI。'
+    )
+  }
   if (
     agent.runtimeReadiness.status === 'installed_unverified'
     || blockerCodes.has('runtime_verification_deferred')

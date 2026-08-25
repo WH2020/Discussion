@@ -26,6 +26,29 @@ function Invoke-RovaiPnpm {
   }
 }
 
+function Resolve-RovaiCodexCli {
+  if (-not [string]::IsNullOrWhiteSpace($env:ROVAI_CODEX_BIN)) {
+    if (-not (Test-Path -LiteralPath $env:ROVAI_CODEX_BIN -PathType Leaf)) {
+      throw "ROVAI_CODEX_BIN does not point to a file: $env:ROVAI_CODEX_BIN"
+    }
+    return [System.IO.Path]::GetFullPath($env:ROVAI_CODEX_BIN)
+  }
+
+  $userProfileDirectory = [Environment]::GetFolderPath(
+    [Environment+SpecialFolder]::UserProfile
+  )
+  if ([string]::IsNullOrWhiteSpace($userProfileDirectory)) {
+    return $null
+  }
+  $standaloneCandidate = Join-Path $userProfileDirectory (
+    '.codex\packages\standalone\current\bin\codex.exe'
+  )
+  if (Test-Path -LiteralPath $standaloneCandidate -PathType Leaf) {
+    return (Get-Item -LiteralPath $standaloneCandidate).FullName
+  }
+  return $null
+}
+
 Push-Location $repositoryRoot
 try {
   if (-not (Test-Path -LiteralPath 'package.json' -PathType Leaf)) {
@@ -49,6 +72,12 @@ try {
   }
   Invoke-RovaiPnpm '--version' | Out-Null
   [void](Resolve-RovaiCommand 'cargo.exe')
+
+  $codexExecutable = Resolve-RovaiCodexCli
+  if ($null -ne $codexExecutable) {
+    $env:ROVAI_CODEX_BIN = $codexExecutable
+    Write-Host "[Rovai] Codex CLI runtime: $codexExecutable"
+  }
 
   $electronVite = Join-Path $repositoryRoot 'node_modules\electron-vite\bin\electron-vite.js'
   if (-not (Test-Path -LiteralPath $electronVite -PathType Leaf)) {

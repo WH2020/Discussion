@@ -141,6 +141,29 @@ describe('Runtime user status projection', () => {
     expect(result.detail).toContain('请重新检测或检查可用性')
   })
 
+  it('explains a Codex light startup failure instead of blaming model settings', () => {
+    const result = memberRuntimePresentation(
+      {
+        ...profile({
+          status: 'needs_attention',
+          blockers: [{ code: 'runtime_light_failed', detail: null }]
+        }),
+        runtimeConfiguration: {
+          adapterKind: 'codex-cli',
+          model: { mode: 'runtime_default' },
+          permissions: { adapterKind: 'codex-cli', schemaVersion: 1, values: {} }
+        }
+      },
+      'codex-cli',
+      availability('needs_attention', 'codex-cli')
+    )
+
+    expect(result.status).toBe('unavailable')
+    expect(result.detail).toContain('独立版 CLI')
+    expect(result.detail).toContain('WindowsApps')
+    expect(result.detail).not.toContain('模型、参数或权限')
+  })
+
   it('keeps Windows not-qualified distinct from machine availability', () => {
     const admission = windowsAdmission('kiro-cli')
 
