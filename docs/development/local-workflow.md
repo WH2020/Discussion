@@ -92,6 +92,10 @@ pnpm dev
 - 拒绝已知的日常 Rovai/历史 Lumen 数据目录及其子目录；
 - 使用开发启动锁拒绝两个 `pnpm dev` 共享同一 `userData`；Core 再用进程级锁封住所有其他入口。
 
+Windows 源码目录额外提供根目录 `start-rovai.cmd`，可从资源管理器双击。它只是经过前置环境检查和
+首次依赖安装的 `pnpm dev` 包装，不绕过上述隔离目录、启动锁、Core 构建或 Electron 启动器。
+`start-rovai.cmd --check` 只验证 Node.js 24+、pnpm/Corepack、Cargo 和已安装依赖，不启动 App。
+
 只检查解析结果而不启动 App：
 
 ```bash

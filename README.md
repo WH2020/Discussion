@@ -204,6 +204,12 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
+On Windows, after cloning the repository, you can instead double-click
+[`start-rovai.cmd`](start-rovai.cmd). The launcher checks Node.js 24+, pnpm/Corepack and Rust,
+installs the locked frontend dependencies on first use, and then starts the same isolated
+development application as `pnpm dev`. Run `start-rovai.cmd --check` to verify readiness without
+opening the app.
+
 ---
 
 ### 2. Supported Agent Runtimes

@@ -106,6 +106,16 @@ pnpm dev
 
 `pnpm dev` 会构建 Debug 版 Rovai Core 和 bundled `rovai` CLI，并使用隔离的数据目录启动桌面应用。
 
+Windows 也可以直接在源码目录双击根目录的 `start-rovai.cmd`。启动器会检查 Node.js 24+、
+pnpm/Corepack、Rust 和项目依赖；首次缺少前端依赖时自动执行锁定安装，随后走与 `pnpm dev`
+完全相同的隔离开发启动路径。只检查而不打开应用时运行：
+
+```powershell
+.\start-rovai.cmd --check
+```
+
+不要把该入口复制到源码目录之外单独运行；如果需要桌面快捷方式，应创建指向仓库内该文件的快捷方式。
+
 更完整的开发准备和隔离规则见：
 
 - [开发环境与依赖](../development/environment.md)
