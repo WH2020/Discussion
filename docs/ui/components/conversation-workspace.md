@@ -365,15 +365,16 @@ Porcelain Day / Steel Night 语义 token，不引入新的视觉世界，也不�
 [工程讨论场景](discussion-scenes.md)，不显示单行空占位。首次训练 Camp 保留专属起步内容，不叠加
 工程场景库。时间线出现消息或已存在 Run 后，整个空状态退出。
 
-起步建议和场景都只填充同一份 Core-owned Composer Draft，不会直接发送、创建假消息、启动 Runtime
-或改变已保存协作配置。场景卡在已有正文时必须先显示覆盖警告；填充后焦点回到 Composer，
+起步建议只填充同一份 Core-owned Composer Draft；场景还可以先把缺少的预设队员加入当前 Camp。
+两者都不会直接发送、创建假消息或启动 Runtime，也不会修改长期 `AgentProfile` 配置。场景卡在已有正文时必须先显示覆盖警告；填充后焦点回到 Composer，
 用户可编辑并加入附件后再发送。
 
 ## Camp 右侧详情栏（Inspector）
 
 默认底部执行台时，ordinary Inspector 只有“任务 / 队员”，DOM、视觉与键盘顺序也保持一致；进入新的
 Camp workspace 时默认选择首个“任务”Tab。队员读取当前 CampMember 与 AgentProfile，
-并通过既有 versioned Core 命令提供唯一 Default Lead 选择器；Task 提供列表与详情责任层。ContextManifest 与
+提供唯一 Default Lead 选择器，并可从当前 present AgentProfile 中临时增加只属于该 Camp 的队员；
+Task 提供列表与详情责任层。ContextManifest 与
 Runtime Input Delivery Evidence 继续存在于 Core/Snapshot，但不进入普通 Inspector；审批只在
 Approval Dock 决定。
 

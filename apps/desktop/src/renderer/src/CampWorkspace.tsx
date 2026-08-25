@@ -1094,6 +1094,9 @@ export function CampWorkspace({
   onPendingDraftPersisted,
   onPendingCampLeave,
   onChangeLead,
+  onAddMembers = async () => undefined,
+  initialDiscussionSceneId = null,
+  onInitialDiscussionSceneConsumed,
   onTasksChanged,
   onResolveApproval,
   onResolveRecoveryBlocker = async () => undefined,
@@ -1133,6 +1136,9 @@ export function CampWorkspace({
   onPendingDraftPersisted?(): void
   onPendingCampLeave?(draft: CampComposerDraftView): Promise<void>
   onChangeLead(agentId: string): Promise<void>
+  onAddMembers?(agentIds: string[]): Promise<void>
+  initialDiscussionSceneId?: string | null
+  onInitialDiscussionSceneConsumed?(): void
   onTasksChanged(): Promise<void>
   onResolveApproval(approval: ActionApprovalView, optionId: string): void
   onResolveRecoveryBlocker?(run: AgentRunView): Promise<void>
@@ -3807,6 +3813,9 @@ export function CampWorkspace({
                   skillCatalogStatus={composerSkillCatalog.status}
                   composerDraftStatus={composerDraftStatus}
                   hasExistingDraft={message.trim().length > 0}
+                  initialDiscussionSceneId={initialDiscussionSceneId}
+                  onInitialDiscussionSceneConsumed={onInitialDiscussionSceneConsumed}
+                  onAddMembers={onAddMembers}
                   onChooseDiscussionScene={chooseDiscussionScene}
                 />
               )}
@@ -3920,9 +3929,11 @@ export function CampWorkspace({
               <CampMembersPanel
                 snapshot={snapshot}
                 profileById={profileById}
+                agents={agents}
                 installations={installations}
                 busy={busy}
                 onChangeLead={onChangeLead}
+                onAddMembers={onAddMembers}
               />
             </Tabs.Content>
           </Tabs.Root>
@@ -5529,15 +5540,19 @@ function RuntimeRecoveryDock({
 function CampMembersPanel({
   snapshot,
   profileById,
+  agents,
   installations,
   busy,
-  onChangeLead
+  onChangeLead,
+  onAddMembers
 }: {
   snapshot: CampSnapshot
   profileById: Map<string, AgentProfile>
+  agents: AgentProfile[]
   installations: AdapterInstallation[]
   busy: boolean
   onChangeLead(agentId: string): Promise<void>
+  onAddMembers(agentIds: string[]): Promise<void>
 }): JSX.Element {
   const members = campInspectorMembers(snapshot.members)
   const defaultLead = members.find((member) => member.isDefaultLead) ?? null
@@ -5545,6 +5560,14 @@ function CampMembersPanel({
   const awayCount = members.length - presentCount
   const [expandedRuntimeAgentIds, setExpandedRuntimeAgentIds] = useState<Set<string>>(
     () => new Set()
+  )
+  const [addingAgentId, setAddingAgentId] = useState<string | null>(null)
+  const [addMemberError, setAddMemberError] = useState<string | null>(null)
+  const activeMemberIds = new Set(snapshot.members
+    .filter((member) => member.membershipStatus === 'active' && member.leaveRequestedAt === null)
+    .map((member) => member.agentId))
+  const addableAgents = agents.filter((agent) =>
+    agent.presence === 'present' && !activeMemberIds.has(agent.agentId)
   )
 
   const toggleRuntimeDetails = (agentId: string): void => {
@@ -5556,6 +5579,18 @@ function CampMembersPanel({
     })
   }
 
+  const addMember = async (agentId: string): Promise<void> => {
+    setAddingAgentId(agentId)
+    setAddMemberError(null)
+    try {
+      await onAddMembers([agentId])
+    } catch (error) {
+      setAddMemberError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAddingAgentId(null)
+    }
+  }
+
   return (
     <section aria-label="当前会话队员">
       <div className="camp-members-summary">
@@ -5564,8 +5599,30 @@ function CampMembersPanel({
             <strong>协作队员</strong>
             <small>{presentCount} 位在队 · {awayCount} 位暂离</small>
           </div>
-          <span className="camp-members-scope">当前会话</span>
+          <div className="camp-members-summary-actions">
+            <span className="camp-members-scope">当前会话</span>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button className="camp-member-add-trigger" type="button" disabled={busy || addableAgents.length === 0}>
+                  ＋ 临时增加队员
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content className="camp-member-add-menu" align="end" sideOffset={5} collisionPadding={10} aria-label="临时增加会话队员">
+                  <DropdownMenu.Label className="camp-member-add-label">只加入当前会话</DropdownMenu.Label>
+                  {addableAgents.map((agent) => (
+                    <DropdownMenu.Item className="camp-member-add-option" disabled={busy || addingAgentId !== null} key={agent.agentId} onSelect={() => void addMember(agent.agentId)}>
+                      <MemberAvatar agentId={agent.agentId} avatarRef={agent.avatarRef} displayName={agent.displayName} size="mention" decorative />
+                      <span><strong>{agent.displayName}</strong><small>{agent.teamRole || '队员'} · {mentionRuntimeLabel(agent)}</small></span>
+                      {addingAgentId === agent.agentId && <em>加入中…</em>}
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
         </div>
+        {addMemberError && <p className="camp-member-add-error" role="alert">{addMemberError}</p>}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button
@@ -5879,6 +5936,9 @@ function EmptyCampWelcome({
   skillCatalogStatus,
   composerDraftStatus,
   hasExistingDraft,
+  initialDiscussionSceneId,
+  onInitialDiscussionSceneConsumed,
+  onAddMembers,
   onChooseDiscussionScene
 }: {
   snapshot: CampSnapshot
@@ -5891,6 +5951,9 @@ function EmptyCampWelcome({
   skillCatalogStatus: 'loading' | 'ready' | 'error'
   composerDraftStatus: 'loading' | 'ready' | 'error'
   hasExistingDraft: boolean
+  initialDiscussionSceneId: string | null
+  onInitialDiscussionSceneConsumed?(): void
+  onAddMembers(agentIds: string[]): Promise<void>
   onChooseDiscussionScene(
     content: StructuredCampMessageContent,
     sceneName: string,
@@ -5908,6 +5971,7 @@ function EmptyCampWelcome({
     ? '快速对话'
     : projectName ?? '当前项目'
   const discussionParticipants = discussionMembers.map((member) => ({
+    agentId: member.agentId,
     displayName: member.displayName,
     teamRole: member.teamRole || '队员',
     isDefaultLead: member.agentId === lead?.agentId
@@ -5985,10 +6049,14 @@ function EmptyCampWelcome({
       </div>
       <DiscussionSceneLauncher
         participants={discussionParticipants}
+        agents={agents}
         composerSkills={composerSkills}
         skillCatalogStatus={skillCatalogStatus}
         composerDraftStatus={composerDraftStatus}
         hasExistingDraft={hasExistingDraft}
+        initialSceneId={initialDiscussionSceneId}
+        onInitialSceneConsumed={onInitialDiscussionSceneConsumed}
+        onAddMembers={onAddMembers}
         onApply={onChooseDiscussionScene}
       />
       {starterNotice && <p className="discussion-scene-notice" role="status">{starterNotice}</p>}

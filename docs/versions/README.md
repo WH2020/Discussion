@@ -180,4 +180,4 @@ last_updated: 2026-08-25
 | v1.26 | `historical` | Cursor Agent Catalog 接入、同名命令防碰撞与保守平台未准入 | [v1.26/README.md](v1.26/README.md) |
 | v1.27 | `historical` | Kimi Code identity、MiniMax M3 私有配置、cold exact resume 与 macOS arm64 准入 | [v1.27/README.md](v1.27/README.md) |
 | v1.28 | `historical` | Grok Build identity、MiniMax M3 本机私有配置、ACP 执行与 macOS arm64 准入 | [v1.28/README.md](v1.28/README.md) |
-| v1.29 | `current` | 本地工程讨论场景、可编辑协作提纲与诚实编排降级 | [v1.29/README.md](v1.29/README.md) |
+| v1.29 | `current` | 本地工程讨论场景、预设小队、会话临时组队与可编辑协作提纲 | [v1.29/README.md](v1.29/README.md) |

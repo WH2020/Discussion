@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   BUILTIN_DISCUSSION_SCENES,
   DISCUSSION_SCENE_DRAFT_TEXT_MAX_BYTES,
+  DISCUSSION_SCENE_SQUADS_RECOVERY_KEY,
+  DISCUSSION_SCENE_SQUADS_STORAGE_KEY,
   DISCUSSION_SCENES_RECOVERY_KEY,
   DISCUSSION_SCENES_STORAGE_KEY,
   buildDiscussionSceneDraft,
@@ -9,8 +11,13 @@ import {
   discussionScenePrompt,
   loadCustomDiscussionScenes,
   loadCustomDiscussionScenesResult,
+  loadDiscussionSceneSquads,
+  loadDiscussionSceneSquadsResult,
   normalizeDiscussionScene,
+  normalizeDiscussionSceneSquad,
+  planDiscussionSceneSquadSelection,
   saveCustomDiscussionScenes,
+  saveDiscussionSceneSquads,
   type DiscussionSceneStorage,
   type DiscussionSceneTemplate
 } from './discussion-scenes'
@@ -112,10 +119,53 @@ describe('discussion scenes', () => {
     expect(saveCustomDiscussionScenes([customScene], writeBlockedStorage)).toBe(false)
   })
 
+  it('persists per-scene squads and falls back safely when configured members are unavailable', () => {
+    const storage = new MemoryDiscussionSceneStorage()
+    const squad = {
+      sceneId: BUILTIN_DISCUSSION_SCENES[0].id,
+      memberAgentIds: ['agent-a', 'agent-b'],
+      defaultLeadAgentId: 'agent-a'
+    }
+    expect(saveDiscussionSceneSquads([squad], storage)).toBe(true)
+    expect(loadDiscussionSceneSquads(storage)).toEqual([squad])
+
+    expect(normalizeDiscussionSceneSquad({
+      ...squad,
+      memberAgentIds: Array.from({ length: 25 }, (_, index) => `agent-${index}`)
+    })).toEqual({
+      squad: null,
+      error: '每个预设小队最多 24 位队员。'
+    })
+
+    expect(planDiscussionSceneSquadSelection(squad, ['agent-a', 'agent-b', 'agent-c'], {
+      memberAgentIds: ['agent-c'],
+      defaultLeadAgentId: 'agent-c'
+    })).toEqual({
+      memberAgentIds: ['agent-a', 'agent-b'],
+      defaultLeadAgentId: 'agent-a',
+      missingAgentIds: [],
+      appliedPreset: true
+    })
+    expect(planDiscussionSceneSquadSelection(squad, ['agent-c'], {
+      memberAgentIds: ['agent-c'],
+      defaultLeadAgentId: 'agent-c'
+    })).toEqual({
+      memberAgentIds: ['agent-c'],
+      defaultLeadAgentId: 'agent-c',
+      missingAgentIds: ['agent-a', 'agent-b'],
+      appliedPreset: false
+    })
+
+    const damagedRaw = '{damaged-squads'
+    storage.setItem(DISCUSSION_SCENE_SQUADS_STORAGE_KEY, damagedRaw)
+    expect(loadDiscussionSceneSquadsResult(storage).warning).toContain('已保留原始恢复副本')
+    expect(storage.getItem(DISCUSSION_SCENE_SQUADS_RECOVERY_KEY)).toBe(damagedRaw)
+  })
+
   it('builds an editable evidence-first prompt with actual team roles and required outputs', () => {
     const prompt = discussionScenePrompt(customScene, [
-      { displayName: '沐瓦', teamRole: '系统架构师', isDefaultLead: true },
-      { displayName: '洛克', teamRole: '固件工程师', isDefaultLead: false }
+      { agentId: 'agent-a', displayName: '沐瓦', teamRole: '系统架构师', isDefaultLead: true },
+      { agentId: 'agent-b', displayName: '洛克', teamRole: '固件工程师', isDefaultLead: false }
     ])
     expect(prompt).toContain('讨论主题或对象：［请在这里补充］')
     expect(prompt).toContain('沐瓦｜系统架构师，草稿生成时的默认负责人')
@@ -128,9 +178,9 @@ describe('discussion scenes', () => {
 
   it('uses the structured campfire Skill only for a real multi-member discussion', () => {
     const participants = [
-      { displayName: '沐瓦', teamRole: '主持人', isDefaultLead: true },
-      { displayName: '洛克', teamRole: '审阅者', isDefaultLead: false },
-      { displayName: '绵枝', teamRole: '验证者', isDefaultLead: false }
+      { agentId: 'agent-a', displayName: '沐瓦', teamRole: '主持人', isDefaultLead: true },
+      { agentId: 'agent-b', displayName: '洛克', teamRole: '审阅者', isDefaultLead: false },
+      { agentId: 'agent-c', displayName: '绵枝', teamRole: '验证者', isDefaultLead: false }
     ]
     const campfire = buildDiscussionSceneDraft(customScene, participants, {
       id: 'skill-campfire',
@@ -179,6 +229,7 @@ describe('discussion scenes', () => {
       instructions: '🧪'.repeat(2_000)
     }
     const participants = Array.from({ length: 20 }, (_, index) => ({
+      agentId: `agent-${index}`,
       displayName: `${index}-${'🧪'.repeat(180)}`,
       teamRole: '🧪'.repeat(180),
       isDefaultLead: index === 0

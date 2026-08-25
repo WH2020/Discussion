@@ -4,7 +4,7 @@ contract: pending-camp-activation-v1
 authority: camp-creation-activation-and-draft-navigation
 status: accepted
 version: 1
-last_updated: 2026-08-09
+last_updated: 2026-08-25
 ---
 
 # Pending Camp Activation v1 Contract
@@ -39,8 +39,12 @@ then persists the normal message/turn/run facts. Any rejection or transaction ro
 Composer Draft, attachments and Draft Revision unchanged.
 
 Pending Camps reject ordinary Camp configuration and Task mutation with
-`camp.pending_activation_required`. Composer Draft/attachment operations and the first user-message submission remain
-available. Agent-authored sends cannot originate from Pending because no AgentRun is admitted before activation.
+`camp.pending_activation_required`. Composer Draft/attachment operations, the first user-message submission, and
+user-authored `camps.members.add` remain available. The member-add exception lets a selected discussion-scene squad be
+completed before its editable first-message draft is created. It accepts only a present AgentProfile, writes the
+CampMember in the command transaction, and deliberately does not emit `camp.member_added` while the Camp remains
+Pending. Agent- or System-authored member additions still reject. Agent-authored sends cannot originate from Pending
+because no AgentRun is admitted before activation.
 
 ## 4. Guarded discard
 

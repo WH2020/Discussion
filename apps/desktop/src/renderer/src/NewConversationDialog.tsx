@@ -12,8 +12,20 @@ import type {
 } from '@contracts'
 import { MemberAvatar } from './MemberAvatar'
 import { NavigationIcon } from './NavigationIcon'
+import {
+  BUILTIN_DISCUSSION_SCENES,
+  DISCUSSION_SCENE_CATEGORY_LABELS,
+  discussionSceneSquadFor,
+  loadCustomDiscussionScenesResult,
+  loadDiscussionSceneSquadsResult,
+  planDiscussionSceneSquadSelection,
+  type DiscussionSceneSquadPreset,
+  type DiscussionSceneTemplate
+} from './discussion-scenes'
 
-type CreateCampDraft = Omit<CreateCampRequest, 'commandId' | 'activationState'>
+export type CreateCampDraft = Omit<CreateCampRequest, 'commandId' | 'activationState'> & {
+  discussionSceneId: string | null
+}
 type WorkspaceChoice = WorkspaceSelection | WorkspaceInspection
 type GitInspectionStatus = 'idle' | 'loading' | 'ready' | 'failed'
 
@@ -49,13 +61,19 @@ export function NewConversationDialog({
   const [workspace, setWorkspace] = useState<WorkspaceChoice | null>(initialWorkspace)
   const [gitInspectionStatus, setGitInspectionStatus] = useState<GitInspectionStatus>('idle')
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
+  const [sceneMenuOpen, setSceneMenuOpen] = useState(false)
   const [memberMenuOpen, setMemberMenuOpen] = useState(false)
+  const [customScenes, setCustomScenes] = useState<DiscussionSceneTemplate[]>([])
+  const [sceneSquads, setSceneSquads] = useState<DiscussionSceneSquadPreset[]>([])
+  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null)
+  const [sceneNotice, setSceneNotice] = useState<string | null>(null)
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([])
   const [leadId, setLeadId] = useState('')
   const [optionalOpen, setOptionalOpen] = useState(false)
   const [name, setName] = useState('')
   const [memberError, setMemberError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const sceneTriggerRef = useRef<HTMLButtonElement>(null)
   const projectTriggerRef = useRef<HTMLButtonElement>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const profileById = useMemo(
@@ -70,6 +88,13 @@ export function NewConversationDialog({
   const selectedMembers = preflight.presentMembers.filter((member) =>
     selectedMemberIds.includes(member.agentId)
   )
+  const allScenes = useMemo(
+    () => [...BUILTIN_DISCUSSION_SCENES, ...customScenes],
+    [customScenes]
+  )
+  const selectedScene = selectedSceneId
+    ? allScenes.find((scene) => scene.id === selectedSceneId) ?? null
+    : null
   const normalizedName = normalizeDraftName(name)
   const nameLength = Array.from(normalizedName).length
   const nameError = nameLength > 80 ? '对话名称最多 80 个字符。' : null
@@ -82,6 +107,7 @@ export function NewConversationDialog({
     setWorkspace(initialWorkspace)
     setGitInspectionStatus(hasGitObservation(initialWorkspace) ? 'ready' : 'idle')
     setProjectMenuOpen(false)
+    setSceneMenuOpen(false)
     setMemberMenuOpen(false)
     setSelectedMemberIds(memberIds)
     setLeadId(recommendedLead)
@@ -89,6 +115,12 @@ export function NewConversationDialog({
     setName('')
     setMemberError(null)
     setSubmitError(null)
+    setSelectedSceneId(null)
+    const sceneLoad = loadCustomDiscussionScenesResult()
+    const squadLoad = loadDiscussionSceneSquadsResult()
+    setCustomScenes(sceneLoad.scenes)
+    setSceneSquads(squadLoad.squads)
+    setSceneNotice(sceneLoad.warning ?? squadLoad.warning)
   }, [initialSelectionPlan, initialWorkspace, open])
 
   const pendingGitInspectionPath = workspace && !hasGitObservation(workspace)
@@ -135,6 +167,37 @@ export function NewConversationDialog({
     })
   }
 
+  const selectDiscussionScene = (sceneId: string | null): void => {
+    setSelectedSceneId(sceneId)
+    setSceneMenuOpen(false)
+    const fallback = {
+      memberAgentIds: initialSelectionPlan.memberIds,
+      defaultLeadAgentId: initialSelectionPlan.leadId
+    }
+    if (!sceneId) {
+      setSelectedMemberIds([...fallback.memberAgentIds])
+      setLeadId(fallback.defaultLeadAgentId)
+      setSceneNotice(null)
+      return
+    }
+    const squad = discussionSceneSquadFor(sceneId, sceneSquads)
+    const plan = planDiscussionSceneSquadSelection(
+      squad,
+      preflight.presentMembers.map((member) => member.agentId),
+      fallback
+    )
+    setSelectedMemberIds(plan.memberAgentIds)
+    setLeadId(plan.defaultLeadAgentId)
+    setMemberError(null)
+    setSceneNotice(!squad
+      ? '此场景尚未配置预设小队，已沿用默认队员；创建后仍会自动填入场景提纲。'
+      : plan.appliedPreset
+        ? plan.missingAgentIds.length > 0
+          ? `已应用可用的预设队员；另有 ${plan.missingAgentIds.length} 位配置成员当前不可用。`
+          : '已应用场景预设小队；你仍可为本次会话临时调整。'
+        : '预设小队当前不可用，已沿用默认队员。')
+  }
+
   const chooseWorkspaceDirectory = async (): Promise<void> => {
     setSubmitError(null)
     try {
@@ -167,7 +230,8 @@ export function NewConversationDialog({
         workspace: workspace ? { projectPath: workspace.projectPath } : null,
         memberAgentIds: selectedMemberIds,
         defaultLeadAgentId: leadId,
-        collaborationMode: 'peer'
+        collaborationMode: 'peer',
+        discussionSceneId: selectedSceneId
       })
     } catch (error) {
       setSubmitError(errorMessage(error))
@@ -192,7 +256,7 @@ export function NewConversationDialog({
           aria-describedby="new-camp-dialog-description"
           onOpenAutoFocus={(event) => {
             event.preventDefault()
-            projectTriggerRef.current?.focus()
+            sceneTriggerRef.current?.focus()
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
@@ -213,7 +277,7 @@ export function NewConversationDialog({
                 <span className="new-camp-eyebrow"><i />NEW CAMP</span>
                 <Dialog.Title>创建新对话</Dialog.Title>
                 <Dialog.Description id="new-camp-dialog-description">
-                  确定这段对话的工作环境与队员。
+                  选择讨论场景、工作环境与本次会话队员。
                 </Dialog.Description>
               </div>
               <Dialog.Close asChild>
@@ -224,7 +288,51 @@ export function NewConversationDialog({
             <div className="new-camp-dialog-body">
               {attentionMessage && <p className="new-camp-attention" role="status">{attentionMessage}</p>}
               <section className="new-camp-section">
-                <SectionHeading step="01" title="工作目录" optional detail="选择任意安全、可读目录；不选择则创建在快速对话。" />
+                <SectionHeading step="01" title="讨论场景" optional detail="选择后会应用该场景的预设小队，并在会话中填入可编辑提纲。" />
+                <div className="new-camp-picker">
+                  <button
+                    ref={sceneTriggerRef}
+                    className="new-camp-picker-trigger scene-trigger"
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded={sceneMenuOpen}
+                    disabled={busy}
+                    onClick={() => {
+                      setSceneMenuOpen((current) => !current)
+                      setProjectMenuOpen(false)
+                      setMemberMenuOpen(false)
+                    }}
+                  >
+                    <span className="new-camp-picker-icon new-camp-scene-icon" aria-hidden="true">◇</span>
+                    <span>
+                      <strong>{selectedScene?.name ?? '通用对话'}</strong>
+                      <small>{selectedScene?.summary ?? '不加载场景提纲，使用默认会话小队。'}</small>
+                    </span>
+                    <DropdownChevron />
+                  </button>
+                  {sceneMenuOpen && (
+                    <div className="new-camp-picker-menu scene-menu" role="listbox" aria-label="选择讨论场景">
+                      <button className={`new-camp-scene-option ${selectedSceneId === null ? 'selected' : ''}`} type="button" role="option" aria-selected={selectedSceneId === null} onClick={() => selectDiscussionScene(null)}>
+                        <span><strong>通用对话</strong><small>使用默认小队，不自动填入场景提纲</small></span><b aria-hidden="true">✓</b>
+                      </button>
+                      {allScenes.map((scene) => {
+                        const squad = discussionSceneSquadFor(scene.id, sceneSquads)
+                        return (
+                          <button className={`new-camp-scene-option ${selectedSceneId === scene.id ? 'selected' : ''}`} type="button" role="option" aria-selected={selectedSceneId === scene.id} key={scene.id} onClick={() => selectDiscussionScene(scene.id)}>
+                            <span className="new-camp-scene-category">{DISCUSSION_SCENE_CATEGORY_LABELS[scene.category]}</span>
+                            <span><strong>{scene.name}</strong><small>{squad ? `预设 ${squad.memberAgentIds.length} 位队员` : '尚未配置预设小队'}</small></span>
+                            <b aria-hidden="true">✓</b>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+                {sceneNotice && <p className="new-camp-scene-notice" role="status">{sceneNotice}</p>}
+              </section>
+
+              <section className="new-camp-section">
+                <SectionHeading step="02" title="工作目录" optional detail="选择任意安全、可读目录；不选择则创建在快速对话。" />
                 <div className="new-camp-picker">
                   <button
                     ref={projectTriggerRef}
@@ -233,7 +341,11 @@ export function NewConversationDialog({
                     aria-haspopup="listbox"
                     aria-expanded={projectMenuOpen}
                     disabled={busy}
-                    onClick={() => setProjectMenuOpen((current) => !current)}
+                    onClick={() => {
+                      setProjectMenuOpen((current) => !current)
+                      setSceneMenuOpen(false)
+                      setMemberMenuOpen(false)
+                    }}
                   >
                     <span className="new-camp-picker-icon" aria-hidden="true">
                       <WorkspaceIcon kind={workspace ? 'project' : 'quick-chat'} />
@@ -297,10 +409,10 @@ export function NewConversationDialog({
 
               <section className="new-camp-section">
                 <SectionHeading
-                  step="02"
+                  step="03"
                   title="队员与负责人"
                   suffix={`已选 ${selectedMembers.length} / ${preflight.presentMembers.length}`}
-                  detail="默认选择全部在队的队员；结构选择不会改变队员的长期配置。"
+                  detail={selectedScene ? '已从场景预设小队初始化；本次调整不会改变场景或队员长期配置。' : '默认选择全部在队的队员；结构选择不会改变队员的长期配置。'}
                 />
                 {preflight.presentMembers.length === 0
                   ? (
@@ -317,7 +429,11 @@ export function NewConversationDialog({
                             aria-haspopup="listbox"
                             aria-expanded={memberMenuOpen}
                             disabled={busy}
-                            onClick={() => setMemberMenuOpen((current) => !current)}
+                            onClick={() => {
+                              setMemberMenuOpen((current) => !current)
+                              setSceneMenuOpen(false)
+                              setProjectMenuOpen(false)
+                            }}
                           >
                             <span className="new-camp-member-stack" aria-hidden="true">
                               {selectedMembers.slice(0, 4).map((member) => {
@@ -503,7 +619,7 @@ export function NewConversationDialog({
 
             <footer className="new-camp-dialog-footer">
               <div>
-                <span>{workspace?.name ?? '快速对话'} · <strong>{selectedMembers.length} 位队员</strong></span>
+                <span>{selectedScene?.name ?? '通用对话'} · {workspace?.name ?? '快速对话'} · <strong>{selectedMembers.length} 位队员</strong></span>
                 {lead && <span> · 负责人：{lead.displayName}</span>}
                 {submitError && <p role="alert">{submitError}</p>}
               </div>

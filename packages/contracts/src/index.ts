@@ -752,6 +752,12 @@ export interface ChangeDefaultLeadCommand {
   expectedVersion: number
 }
 
+export interface AddCampMemberCommand {
+  campId: string
+  agentId: string
+  capabilityOverrides?: Record<string, unknown>
+}
+
 export interface ReconcileDefaultLeadCommand {
   campId: string
 }
@@ -2532,6 +2538,7 @@ export type CoreMethod =
   | 'camps.discardPending'
   | 'camps.rename'
   | 'camps.changeDefaultLead'
+  | 'camps.members.add'
   | 'camps.reconcileDefaultLead'
   | 'camps.exists'
   | 'camps.enter'

@@ -491,6 +491,10 @@ export function App(): React.JSX.Element {
   const [newConversationInitialWorkspace, setNewConversationInitialWorkspace] = useState<WorkspaceSelection | null>(null)
   const [newConversationInitialSelection, setNewConversationInitialSelection] = useState<GeneralPreferencesSnapshot['newConversationDefaults']>(null)
   const [newConversationAttention, setNewConversationAttention] = useState<string | null>(null)
+  const [pendingDiscussionSceneLaunch, setPendingDiscussionSceneLaunch] = useState<{
+    campId: string
+    sceneId: string
+  } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -2248,8 +2252,45 @@ export function App(): React.JSX.Element {
     }
   }
 
+  const addCampMembers = async (agentIds: string[]): Promise<void> => {
+    const campId = activeCampId
+    const currentSnapshot = campSnapshotRef.current
+    if (!campId || currentSnapshot?.camp.id !== campId) return
+    const activeMemberIds = new Set(currentSnapshot.members
+      .filter((member) => member.membershipStatus === 'active' && member.leaveRequestedAt === null)
+      .map((member) => member.agentId))
+    const requestedAgentIds = [...new Set(agentIds)].filter((agentId) => !activeMemberIds.has(agentId))
+    if (requestedAgentIds.length === 0) return
+    setBusy('add-camp-members')
+    setError(null)
+    let addedCount = 0
+    try {
+      for (const agentId of requestedAgentIds) {
+        const result = await window.rovai.request<StoredCommandResult>('camps.members.add', {
+          commandId: crypto.randomUUID(),
+          command: { campId, agentId, capabilityOverrides: {} }
+        })
+        if (result.status === 'rejected') throw new Error(commandFailureMessage(result))
+        addedCount += 1
+      }
+      await refreshActiveCampSnapshot(campId)
+      setToast(addedCount === 1 ? '已为当前会话临时增加 1 位队员' : `已为当前会话临时增加 ${addedCount} 位队员`)
+    } catch (nextError) {
+      try {
+        await refreshActiveCampSnapshot(campId)
+      } catch {
+        // Keep the command failure visible; normal polling will converge the snapshot.
+      }
+      setError(errorMessage(nextError))
+      throw nextError
+    } finally {
+      setBusy(null)
+    }
+  }
+
   async function createCamp(
-    draft: Omit<CreateCampRequest, 'commandId'>
+    draft: Omit<CreateCampRequest, 'commandId'>,
+    discussionSceneId: string | null = null
   ): Promise<void> {
     setBusy('create-camp')
     try {
@@ -2263,6 +2304,7 @@ export function App(): React.JSX.Element {
       if (result.status === 'rejected') throw new Error(commandFailureMessage(result))
       const campId = stringField(result.payload, 'campId')
       if (!campId) throw new Error('会话已创建，但暂时无法打开。请刷新会话列表后重试。')
+      setPendingDiscussionSceneLaunch(discussionSceneId ? { campId, sceneId: discussionSceneId } : null)
       setNewConversationOpen(false)
       await activateCamp(campId, { reconcileDefaultLead: false })
     } finally {
@@ -2756,11 +2798,18 @@ export function App(): React.JSX.Element {
             agents={agents}
             installations={installations}
             liveRuntimeEvents={liveRuntimeEvents}
-            busy={busy === 'camp-message' || busy === 'change-default-lead' || busy?.startsWith('action-approval-') === true}
+            busy={busy === 'camp-message' || busy === 'change-default-lead' || busy === 'add-camp-members' || busy?.startsWith('action-approval-') === true}
             onSend={sendCampMessage}
             onPendingDraftPersisted={refreshPendingCampNavigation}
             onPendingCampLeave={settlePendingCampOnLeave}
             onChangeLead={changeDefaultLead}
+            onAddMembers={addCampMembers}
+            initialDiscussionSceneId={pendingDiscussionSceneLaunch?.campId === activeCampId
+              ? pendingDiscussionSceneLaunch.sceneId
+              : null}
+            onInitialDiscussionSceneConsumed={() => {
+              setPendingDiscussionSceneLaunch((current) => current?.campId === activeCampId ? null : current)
+            }}
             onTasksChanged={() => activateCamp(activeCampId).then(() => undefined)}
             onResolveApproval={(approval, decision) => {
               void resolveActionApproval(approval, decision)
@@ -2896,10 +2945,10 @@ export function App(): React.JSX.Element {
         onOpenChange={setNewConversationOpen}
         onChooseWorkspaceDirectory={chooseWorkspaceDirectory}
         onWorkspaceSelected={(workspace) => restoreNavigationProject(workspace.projectPath)}
-        onCreate={(draft) => createCamp({
+        onCreate={({ discussionSceneId, ...draft }) => createCamp({
           ...draft,
           activationState: campActivationStateForCreation('dialog')
-        })}
+        }, discussionSceneId)}
       />
       <NotificationAttentionController
         enabled={startupStatus === 'resolved'}

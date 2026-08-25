@@ -2,6 +2,8 @@ import type { StructuredCampMessageContent } from '@contracts'
 
 export const DISCUSSION_SCENES_STORAGE_KEY = 'rovai.discussion-scenes.v1'
 export const DISCUSSION_SCENES_RECOVERY_KEY = 'rovai.discussion-scenes.recovery.v1'
+export const DISCUSSION_SCENE_SQUADS_STORAGE_KEY = 'rovai.discussion-scene-squads.v1'
+export const DISCUSSION_SCENE_SQUADS_RECOVERY_KEY = 'rovai.discussion-scene-squads.recovery.v1'
 export const MAX_CUSTOM_DISCUSSION_SCENES = 40
 export const DISCUSSION_SCENE_DRAFT_TEXT_MAX_BYTES = 28 * 1024
 
@@ -10,6 +12,8 @@ const MAX_SUMMARY_LENGTH = 180
 const MAX_INSTRUCTIONS_LENGTH = 2_000
 const MAX_LIST_ITEMS = 12
 const MAX_LIST_ITEM_LENGTH = 180
+const MAX_DISCUSSION_SCENE_SQUADS = 80
+export const MAX_DISCUSSION_SCENE_SQUAD_MEMBERS = 24
 
 export type DiscussionSceneCategory =
   | 'algorithm'
@@ -30,9 +34,28 @@ export interface DiscussionSceneTemplate {
 }
 
 export interface DiscussionSceneParticipant {
+  agentId: string
   displayName: string
   teamRole: string
   isDefaultLead: boolean
+}
+
+export interface DiscussionSceneSquadPreset {
+  sceneId: string
+  memberAgentIds: string[]
+  defaultLeadAgentId: string
+}
+
+export interface DiscussionSceneSquadLoadResult {
+  squads: DiscussionSceneSquadPreset[]
+  warning: string | null
+}
+
+export interface DiscussionSceneSquadSelectionPlan {
+  memberAgentIds: string[]
+  defaultLeadAgentId: string
+  missingAgentIds: string[]
+  appliedPreset: boolean
 }
 
 export interface DiscussionSceneSkillReference {
@@ -344,6 +367,206 @@ function preserveDiscussionSceneRecovery(
   }
 }
 
+export function normalizeDiscussionSceneSquad(input: unknown): {
+  squad: DiscussionSceneSquadPreset | null
+  error: string | null
+} {
+  if (!isRecord(input)) return { squad: null, error: '预设小队数据格式无效。' }
+  const sceneId = normalizedIdentifier(input.sceneId, 120)
+  if (!sceneId || (!sceneId.startsWith('custom:') && !sceneId.startsWith('builtin:'))) {
+    return { squad: null, error: '预设小队的场景标识无效。' }
+  }
+  if (!Array.isArray(input.memberAgentIds)) {
+    return { squad: null, error: '请至少选择一位预设队员。' }
+  }
+  const memberAgentIds: string[] = []
+  const seen = new Set<string>()
+  for (const candidate of input.memberAgentIds) {
+    const agentId = normalizedIdentifier(candidate, 200)
+    if (!agentId || seen.has(agentId)) continue
+    if (memberAgentIds.length >= MAX_DISCUSSION_SCENE_SQUAD_MEMBERS) {
+      return {
+        squad: null,
+        error: `每个预设小队最多 ${MAX_DISCUSSION_SCENE_SQUAD_MEMBERS} 位队员。`
+      }
+    }
+    seen.add(agentId)
+    memberAgentIds.push(agentId)
+  }
+  if (memberAgentIds.length === 0) {
+    return { squad: null, error: '请至少选择一位预设队员。' }
+  }
+  const defaultLeadAgentId = normalizedIdentifier(input.defaultLeadAgentId, 200)
+  if (!defaultLeadAgentId || !memberAgentIds.includes(defaultLeadAgentId)) {
+    return { squad: null, error: '预设负责人必须属于预设小队。' }
+  }
+  return {
+    squad: { sceneId, memberAgentIds, defaultLeadAgentId },
+    error: null
+  }
+}
+
+export function discussionSceneSquadFor(
+  sceneId: string,
+  squads: readonly DiscussionSceneSquadPreset[]
+): DiscussionSceneSquadPreset | null {
+  return squads.find((squad) => squad.sceneId === sceneId) ?? null
+}
+
+export function planDiscussionSceneSquadSelection(
+  squad: DiscussionSceneSquadPreset | null,
+  availableAgentIds: readonly string[],
+  fallback: { memberAgentIds: readonly string[]; defaultLeadAgentId: string }
+): DiscussionSceneSquadSelectionPlan {
+  const available = new Set(availableAgentIds)
+  if (!squad) {
+    return {
+      memberAgentIds: [...fallback.memberAgentIds],
+      defaultLeadAgentId: fallback.defaultLeadAgentId,
+      missingAgentIds: [],
+      appliedPreset: false
+    }
+  }
+  const memberAgentIds = squad.memberAgentIds.filter((agentId) => available.has(agentId))
+  const missingAgentIds = squad.memberAgentIds.filter((agentId) => !available.has(agentId))
+  if (memberAgentIds.length === 0) {
+    return {
+      memberAgentIds: [...fallback.memberAgentIds],
+      defaultLeadAgentId: fallback.defaultLeadAgentId,
+      missingAgentIds,
+      appliedPreset: false
+    }
+  }
+  return {
+    memberAgentIds,
+    defaultLeadAgentId: memberAgentIds.includes(squad.defaultLeadAgentId)
+      ? squad.defaultLeadAgentId
+      : memberAgentIds[0],
+    missingAgentIds,
+    appliedPreset: true
+  }
+}
+
+export function loadDiscussionSceneSquads(
+  storage: DiscussionSceneStorage | null = browserDiscussionSceneStorage()
+): DiscussionSceneSquadPreset[] {
+  return loadDiscussionSceneSquadsResult(storage).squads
+}
+
+export function loadDiscussionSceneSquadsResult(
+  storage: DiscussionSceneStorage | null = browserDiscussionSceneStorage()
+): DiscussionSceneSquadLoadResult {
+  if (!storage) return { squads: [], warning: null }
+  let raw: string | null
+  try {
+    raw = storage.getItem(DISCUSSION_SCENE_SQUADS_STORAGE_KEY)
+  } catch {
+    return {
+      squads: [],
+      warning: '无法读取本机场景小队。为避免覆盖原数据，保存将保持防御性失败。'
+    }
+  }
+  if (raw === null) return { squads: [], warning: null }
+
+  const parsed = parseStoredDiscussionSceneSquads(raw)
+  if (parsed.clean) return { squads: parsed.squads, warning: null }
+  const recovered = preserveDiscussionSceneSquadRecovery(raw, storage)
+  return {
+    squads: parsed.squads,
+    warning: recovered
+      ? parsed.readable
+        ? '部分场景小队数据无效，已保留原始恢复副本并加载可用项。'
+        : '场景小队数据损坏，已保留原始恢复副本。'
+      : '场景小队数据损坏且无法保存恢复副本；后续保存将被阻止，以避免覆盖原数据。'
+  }
+}
+
+export function saveDiscussionSceneSquads(
+  squads: readonly DiscussionSceneSquadPreset[],
+  storage: DiscussionSceneStorage | null = browserDiscussionSceneStorage()
+): boolean {
+  if (!storage) return false
+  const normalizedSquads: DiscussionSceneSquadPreset[] = []
+  const seen = new Set<string>()
+  for (const candidate of squads) {
+    const { squad } = normalizeDiscussionSceneSquad(candidate)
+    if (!squad || seen.has(squad.sceneId)) continue
+    seen.add(squad.sceneId)
+    normalizedSquads.push(squad)
+    if (normalizedSquads.length >= MAX_DISCUSSION_SCENE_SQUADS) break
+  }
+  try {
+    const currentRaw = storage.getItem(DISCUSSION_SCENE_SQUADS_STORAGE_KEY)
+    if (currentRaw !== null) {
+      const current = parseStoredDiscussionSceneSquads(currentRaw)
+      if (!current.clean && !preserveDiscussionSceneSquadRecovery(currentRaw, storage)) return false
+    }
+    storage.setItem(DISCUSSION_SCENE_SQUADS_STORAGE_KEY, JSON.stringify({
+      schemaVersion: 1,
+      squads: normalizedSquads
+    }))
+    return true
+  } catch {
+    return false
+  }
+}
+
+function parseStoredDiscussionSceneSquads(raw: string): {
+  squads: DiscussionSceneSquadPreset[]
+  clean: boolean
+  readable: boolean
+} {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw) as unknown
+  } catch {
+    return { squads: [], clean: false, readable: false }
+  }
+  if (!isRecord(parsed) || parsed.schemaVersion !== 1 || !Array.isArray(parsed.squads)) {
+    return { squads: [], clean: false, readable: false }
+  }
+  const squads: DiscussionSceneSquadPreset[] = []
+  const seen = new Set<string>()
+  let clean = true
+  for (const candidate of parsed.squads) {
+    const { squad } = normalizeDiscussionSceneSquad(candidate)
+    if (!squad || seen.has(squad.sceneId)) {
+      clean = false
+      continue
+    }
+    if (squads.length >= MAX_DISCUSSION_SCENE_SQUADS) {
+      clean = false
+      continue
+    }
+    if (!storedDiscussionSceneSquadMatchesNormalized(candidate, squad)) clean = false
+    seen.add(squad.sceneId)
+    squads.push(squad)
+  }
+  return { squads, clean, readable: true }
+}
+
+function storedDiscussionSceneSquadMatchesNormalized(
+  candidate: unknown,
+  normalized: DiscussionSceneSquadPreset
+): boolean {
+  return isRecord(candidate)
+    && candidate.sceneId === normalized.sceneId
+    && candidate.defaultLeadAgentId === normalized.defaultLeadAgentId
+    && stringArraysEqual(candidate.memberAgentIds, normalized.memberAgentIds)
+}
+
+function preserveDiscussionSceneSquadRecovery(
+  raw: string,
+  storage: DiscussionSceneStorage
+): boolean {
+  try {
+    storage.setItem(DISCUSSION_SCENE_SQUADS_RECOVERY_KEY, raw)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function buildDiscussionSceneDraft(
   scene: DiscussionSceneTemplate,
   participants: readonly DiscussionSceneParticipant[],
@@ -382,6 +605,7 @@ export function discussionScenePrompt(
     instructions: truncateUtf8(scene.instructions, 1_200)
   }
   const compactParticipants = participants.slice(0, 8).map((participant) => ({
+    agentId: participant.agentId,
     displayName: truncateUtf8(participant.displayName, 240),
     teamRole: truncateUtf8(participant.teamRole, 320),
     isDefaultLead: participant.isDefaultLead
@@ -498,6 +722,12 @@ function browserDiscussionSceneStorage(): DiscussionSceneStorage | null {
 function normalizedText(value: unknown, maxLength: number): string {
   if (typeof value !== 'string') return ''
   return Array.from(value.trim().replace(/\s+/gu, ' ')).slice(0, maxLength).join('')
+}
+
+function normalizedIdentifier(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string') return ''
+  const normalized = Array.from(value.trim()).slice(0, maxLength).join('')
+  return /\s/u.test(normalized) ? '' : normalized
 }
 
 function normalizedList(value: unknown): string[] {

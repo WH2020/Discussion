@@ -245,7 +245,7 @@ For exact versions, capabilities, and observed boundaries, see the
 | **Long-lived members** | Preserve each member's enduring identity, appearance, responsibilities, and working style so they can rejoin the team across Camps and Tasks. |
 | **Camp collaboration** | Organize shared conversations, long-lived members, Tasks, attachments, and execution state around one objective, reducing the context users must carry between separate windows. |
 | **Role-based collaboration** | Turn paired questioning, document-informed decision-making, code review, and group discussion into repeatable ways for a team to work together. |
-| **Local discussion scenes** | Organize algorithm, PRD, software architecture, and prototype reviews with built-in or custom viewpoints, agendas, and deliverables; each scene fills an editable draft that you review before sending. |
+| **Local discussion scenes** | Organize algorithm, PRD, software architecture, and prototype reviews with built-in or custom viewpoints, agendas, deliverables, and reusable squad presets; adjust session-only members before you send the editable draft. |
 | **Tasks and ownership** | Give ongoing work a title, owner, and state so unfinished work remains trackable and can be picked up by another member. |
 | **Member handoffs** | Use @mentions, the default Lead, direct replies, and A2A routing to pass questions, conclusions, and next actions to the right member. |
 | **Visible execution** | Inspect tool calls, process state, intermediate results, and final delivery in an independent execution console instead of hiding real work behind a single completion message. |

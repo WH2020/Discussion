@@ -87,12 +87,12 @@ use rovai_core::{
     camp_id::CampId,
     camp_open::CampOpenService,
     collaboration::{
-        CampActivationState, CampCollaborationMode, ChangeDefaultLeadCommand, CollaborationService,
-        CreateCampCommand, CreateTaskCommand, DeleteCampCommand, DiscardPendingCampCommand,
-        ExecutionRequest, ProjectBindingKind, ReconcileDefaultLeadCommand, RenameCampCommand,
-        SendUserAutomationCampMessageCommand, SendUserCampDraftCommand,
-        TaskAcceptanceCriteriaUpdate, TaskAssigneeFilter, TaskAssigneeUpdate, TaskListQuery,
-        TaskStatus, UpdateTaskCommand,
+        AddCampMemberCommand, CampActivationState, CampCollaborationMode, ChangeDefaultLeadCommand,
+        CollaborationService, CreateCampCommand, CreateTaskCommand, DeleteCampCommand,
+        DiscardPendingCampCommand, ExecutionRequest, ProjectBindingKind,
+        ReconcileDefaultLeadCommand, RenameCampCommand, SendUserAutomationCampMessageCommand,
+        SendUserCampDraftCommand, TaskAcceptanceCriteriaUpdate, TaskAssigneeFilter,
+        TaskAssigneeUpdate, TaskListQuery, TaskStatus, UpdateTaskCommand,
     },
     command::{
         ActorRef, CommandEnvelope, CommandExecution, CommandGatewayError, CommandHandlerResult,
@@ -5097,6 +5097,17 @@ impl Core {
                 let camp_id = params.command.camp_id.clone();
                 let mut database = self.database.lock().await;
                 let execution = CollaborationService::default().rename_camp(
+                    &mut database,
+                    &user_camp_command_envelope(params.command_id, camp_id, params.command),
+                )?;
+                Ok(serde_json::to_value(execution.result)?)
+            }
+            "camps.members.add" => {
+                let params: UserCommandParams<AddCampMemberCommand> =
+                    serde_json::from_value(request.params.clone())?;
+                let camp_id = params.command.camp_id.clone();
+                let mut database = self.database.lock().await;
+                let execution = CollaborationService::default().add_camp_member(
                     &mut database,
                     &user_camp_command_envelope(params.command_id, camp_id, params.command),
                 )?;

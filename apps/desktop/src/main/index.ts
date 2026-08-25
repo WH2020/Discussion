@@ -146,6 +146,7 @@ const allowedMethods = new Set<CoreMethod>([
   'camps.discardPending',
   'camps.rename',
   'camps.changeDefaultLead',
+  'camps.members.add',
   'camps.reconcileDefaultLead',
   'camps.exists',
   'camps.enter',

@@ -1290,7 +1290,8 @@ impl CollaborationService {
             let Some(default_lead) = camp_state else {
                 return Ok(rejected("camp.not_found", "Camp does not exist"));
             };
-            if camp_is_pending(transaction, &envelope.payload.camp_id)? {
+            let pending = camp_is_pending(transaction, &envelope.payload.camp_id)?;
+            if pending && !matches!(envelope.actor, ActorRef::User { .. }) {
                 return Ok(rejected(
                     "camp.pending_activation_required",
                     "A pending Camp must be activated by its first message",
@@ -1374,15 +1375,17 @@ impl CollaborationService {
                     params![envelope.payload.camp_id, envelope.payload.agent_id, now,],
                 )?;
             }
-            append_domain_event(
-                transaction,
-                "camp.member_added",
-                Some(&envelope.payload.camp_id),
-                Some(("agent_profile", &envelope.payload.agent_id)),
-                &envelope.actor,
-                envelope.execution_epoch,
-                &json!({}),
-            )?;
+            if !pending {
+                append_domain_event(
+                    transaction,
+                    "camp.member_added",
+                    Some(&envelope.payload.camp_id),
+                    Some(("agent_profile", &envelope.payload.agent_id)),
+                    &envelope.actor,
+                    envelope.execution_epoch,
+                    &json!({}),
+                )?;
+            }
             Ok(CommandHandlerResult::applied(
                 "camp.member_added",
                 json!({
@@ -5027,6 +5030,42 @@ mod slow_tests {
             )
             .unwrap();
         assert_eq!(created_events, 0);
+        let added = service
+            .add_camp_member(
+                &mut database,
+                &user_envelope(
+                    "pending-camp-add-member",
+                    Some(&camp_id),
+                    AddCampMemberCommand {
+                        camp_id: camp_id.clone(),
+                        agent_id: "agent_2".to_string(),
+                        capability_overrides: json!({}),
+                    },
+                ),
+            )
+            .unwrap();
+        assert_eq!(added.result.status, CommandResultStatus::Applied);
+        let added_member_count: i64 = database
+            .connection()
+            .query_row(
+                r#"
+                SELECT COUNT(*) FROM camp_member
+                WHERE camp_id = ?1 AND agent_id = 'agent_2' AND status = 'active'
+                "#,
+                [&camp_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(added_member_count, 1);
+        let member_added_events: i64 = database
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM event_log WHERE camp_id = ?1 AND event_type = 'camp.member_added'",
+                [&camp_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(member_added_events, 0);
         let rename = service
             .rename_camp(
                 &mut database,
@@ -5129,6 +5168,67 @@ mod slow_tests {
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
         assert_eq!(event_types, vec!["camp.activated", "camp_message.sent"]);
+
+        drop(database);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn pending_camp_rejects_non_user_member_changes() {
+        let (mut database, directory) = test_database();
+        let service = CollaborationService::default();
+        let camp_id = create_pending_camp(
+            &service,
+            &mut database,
+            &directory,
+            "pending-non-user-create",
+        );
+
+        for envelope in [
+            agent_envelope(
+                "pending-agent-add-member",
+                &camp_id,
+                "agent_1",
+                "nonexistent-agent-run",
+                1,
+                AddCampMemberCommand {
+                    camp_id: camp_id.clone(),
+                    agent_id: "agent_2".to_string(),
+                    capability_overrides: json!({}),
+                },
+            ),
+            CommandEnvelope {
+                command_id: "pending-system-add-member".to_string(),
+                actor: ActorRef::System {
+                    component_id: "test-system".to_string(),
+                },
+                camp_id: Some(camp_id.clone()),
+                expected_versions: Vec::new(),
+                execution_epoch: None,
+                payload: AddCampMemberCommand {
+                    camp_id: camp_id.clone(),
+                    agent_id: "agent_2".to_string(),
+                    capability_overrides: json!({}),
+                },
+            },
+        ] {
+            let rejected = service.add_camp_member(&mut database, &envelope).unwrap();
+            assert_eq!(rejected.result.status, CommandResultStatus::Rejected);
+            assert_eq!(rejected.result.code, "camp.pending_activation_required");
+        }
+
+        let added_member_count: i64 = database
+            .connection()
+            .query_row(
+                r#"
+                SELECT COUNT(*) FROM camp_member
+                WHERE camp_id = ?1 AND agent_id = 'agent_2'
+                "#,
+                [&camp_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(added_member_count, 0);
 
         drop(database);
         std::fs::remove_dir_all(directory).unwrap();
@@ -5674,6 +5774,15 @@ mod slow_tests {
             .unwrap();
         assert_eq!(added.result.status, CommandResultStatus::Applied);
         assert_eq!(row_count(&database, "conversation"), 0);
+        let member_added_events: i64 = database
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM event_log WHERE camp_id = ?1 AND event_type = 'camp.member_added'",
+                [&camp_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(member_added_events, 1);
 
         database
             .connection()

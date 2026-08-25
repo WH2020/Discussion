@@ -1,6 +1,6 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import type { StructuredCampMessageContent } from '@contracts'
+import type { AgentProfile, StructuredCampMessageContent } from '@contracts'
 import {
   AppDialogBody,
   AppDialogContent,
@@ -8,21 +8,28 @@ import {
   AppDialogHeader
 } from './AppDialog'
 import type { ComposerSkillOption } from './composer-skill-picker'
+import { MemberAvatar } from './MemberAvatar'
 import {
   BUILTIN_DISCUSSION_SCENES,
   DISCUSSION_SCENE_CATEGORY_LABELS,
+  MAX_DISCUSSION_SCENE_SQUAD_MEMBERS,
   MAX_CUSTOM_DISCUSSION_SCENES,
   buildDiscussionSceneDraft,
   createCustomDiscussionSceneId,
   discussionSceneLineInputError,
   isBuiltinDiscussionScene,
   loadCustomDiscussionScenesResult,
+  loadDiscussionSceneSquadsResult,
   normalizeDiscussionScene,
+  normalizeDiscussionSceneSquad,
   parseDiscussionSceneLines,
   saveCustomDiscussionScenes,
+  saveDiscussionSceneSquads,
+  discussionSceneSquadFor,
   type DiscussionSceneCategory,
   type DiscussionSceneOrchestration,
   type DiscussionSceneParticipant,
+  type DiscussionSceneSquadPreset,
   type DiscussionSceneTemplate
 } from './discussion-scenes'
 
@@ -50,17 +57,25 @@ const BLANK_DISCUSSION_SCENE: DiscussionSceneFormDraft = {
 
 export function DiscussionSceneLauncher({
   participants,
+  agents,
   composerSkills,
   skillCatalogStatus,
   composerDraftStatus,
   hasExistingDraft,
+  initialSceneId = null,
+  onInitialSceneConsumed,
+  onAddMembers,
   onApply
 }: {
   participants: DiscussionSceneParticipant[]
+  agents: AgentProfile[]
   composerSkills: ComposerSkillOption[]
   skillCatalogStatus: 'loading' | 'ready' | 'error'
   composerDraftStatus: 'loading' | 'ready' | 'error'
   hasExistingDraft: boolean
+  initialSceneId?: string | null
+  onInitialSceneConsumed?(): void
+  onAddMembers?(agentIds: string[]): Promise<void>
   onApply(
     content: StructuredCampMessageContent,
     sceneName: string,
@@ -68,21 +83,37 @@ export function DiscussionSceneLauncher({
   ): void
 }): React.JSX.Element {
   const [initialSceneLoad] = useState(() => loadCustomDiscussionScenesResult())
+  const [initialSquadLoad] = useState(() => loadDiscussionSceneSquadsResult())
   const [customScenes, setCustomScenes] = useState<DiscussionSceneTemplate[]>(
     initialSceneLoad.scenes
+  )
+  const [sceneSquads, setSceneSquads] = useState<DiscussionSceneSquadPreset[]>(
+    initialSquadLoad.squads
   )
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedSceneId, setSelectedSceneId] = useState(BUILTIN_DISCUSSION_SCENES[0].id)
   const [editorDraft, setEditorDraft] = useState<DiscussionSceneFormDraft | null>(null)
   const [editorError, setEditorError] = useState<string | null>(null)
-  const [storageError, setStorageError] = useState<string | null>(initialSceneLoad.warning)
+  const [storageError, setStorageError] = useState<string | null>(
+    initialSceneLoad.warning ?? initialSquadLoad.warning
+  )
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null)
+  const [squadEditor, setSquadEditor] = useState<DiscussionSceneSquadPreset | null>(null)
+  const [squadError, setSquadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [applyingSceneId, setApplyingSceneId] = useState<string | null>(null)
+  const initialSceneAttempted = useRef<string | null>(null)
   const allScenes = useMemo(
     () => [...BUILTIN_DISCUSSION_SCENES, ...customScenes],
     [customScenes]
   )
   const selectedScene = allScenes.find((scene) => scene.id === selectedSceneId)
     ?? allScenes[0]
+  const selectedSquad = discussionSceneSquadFor(selectedScene.id, sceneSquads)
+  const presentAgents = useMemo(
+    () => agents.filter((agent) => agent.presence === 'present'),
+    [agents]
+  )
   const leadPresent = participants.some((participant) => participant.isDefaultLead)
   const campfireSkill = leadPresent
     ? composerSkills.find((skill) => skill.name === 'campfire') ?? null
@@ -103,15 +134,44 @@ export function DiscussionSceneLauncher({
           skillCatalogStatus
         )
 
-  const applyScene = (scene: DiscussionSceneTemplate): void => {
-    if (!draftReady) return
-    const draft = buildDiscussionSceneDraft(
-      scene,
-      participants,
-      campfireSkill ? { id: campfireSkill.id, name: campfireSkill.name } : null
-    )
-    onApply(draft.content, scene.name, draft.orchestration)
-    setDialogOpen(false)
+  const applyScene = async (scene: DiscussionSceneTemplate): Promise<void> => {
+    if (!draftReady || applyingSceneId) return
+    setApplyingSceneId(scene.id)
+    setActionError(null)
+    try {
+      const squad = discussionSceneSquadFor(scene.id, sceneSquads)
+      const participantIds = new Set(participants.map((participant) => participant.agentId))
+      const missingAgents = squad
+        ? presentAgents.filter((agent) =>
+            squad.memberAgentIds.includes(agent.agentId) && !participantIds.has(agent.agentId)
+          )
+        : []
+      if (missingAgents.length > 0) {
+        if (!onAddMembers) throw new Error('当前界面无法把预设队员加入会话。')
+        await onAddMembers(missingAgents.map((agent) => agent.agentId))
+      }
+      const effectiveParticipants = [
+        ...participants,
+        ...missingAgents.map((agent) => ({
+          agentId: agent.agentId,
+          displayName: agent.displayName,
+          teamRole: agent.teamRole || '队员',
+          isDefaultLead: false
+        }))
+      ]
+      const draft = buildDiscussionSceneDraft(
+        scene,
+        effectiveParticipants,
+        campfireSkill ? { id: campfireSkill.id, name: campfireSkill.name } : null
+      )
+      onApply(draft.content, scene.name, draft.orchestration)
+      setDialogOpen(false)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error))
+      throw error
+    } finally {
+      setApplyingSceneId(null)
+    }
   }
 
   const requestScene = (scene: DiscussionSceneTemplate): void => {
@@ -121,8 +181,31 @@ export function DiscussionSceneLauncher({
       setDialogOpen(true)
       return
     }
-    applyScene(scene)
+    void applyScene(scene).catch(() => undefined)
   }
+
+  useEffect(() => {
+    if (!initialSceneId) {
+      initialSceneAttempted.current = null
+      return
+    }
+    if (!draftReady || initialSceneAttempted.current === initialSceneId) return
+    initialSceneAttempted.current = initialSceneId
+    const scene = allScenes.find((candidate) => candidate.id === initialSceneId)
+    if (!scene) {
+      setActionError('创建会话时选择的场景已不可用，请从场景库重新选择。')
+      onInitialSceneConsumed?.()
+      return
+    }
+    if (hasExistingDraft) {
+      setActionError('输入框已有内容，未自动覆盖；可以从场景库手动填入。')
+      onInitialSceneConsumed?.()
+      return
+    }
+    void applyScene(scene)
+      .catch(() => undefined)
+      .finally(() => onInitialSceneConsumed?.())
+  }, [initialSceneId, draftReady])
 
   const persistCustomScenes = (nextScenes: DiscussionSceneTemplate[]): boolean => {
     if (!saveCustomDiscussionScenes(nextScenes)) {
@@ -134,10 +217,87 @@ export function DiscussionSceneLauncher({
     return true
   }
 
+  const persistSceneSquads = (nextSquads: DiscussionSceneSquadPreset[]): boolean => {
+    if (!saveDiscussionSceneSquads(nextSquads)) {
+      setStorageError('场景小队未能写入本机存储；原有配置保持不变。')
+      return false
+    }
+    setSceneSquads(nextSquads)
+    setStorageError(null)
+    return true
+  }
+
+  const beginSquadEditing = (scene: DiscussionSceneTemplate): void => {
+    const existing = discussionSceneSquadFor(scene.id, sceneSquads)
+    const availableIds = new Set(presentAgents.map((agent) => agent.agentId))
+    const memberAgentIds = existing?.memberAgentIds.filter((agentId) => availableIds.has(agentId))
+      ?? participants.map((participant) => participant.agentId).filter((agentId) => availableIds.has(agentId))
+    const fallbackMemberIds = memberAgentIds.length > 0
+      ? memberAgentIds
+      : presentAgents.slice(0, 1).map((agent) => agent.agentId)
+    const defaultLeadAgentId = existing && fallbackMemberIds.includes(existing.defaultLeadAgentId)
+      ? existing.defaultLeadAgentId
+      : participants.find((participant) =>
+          participant.isDefaultLead && fallbackMemberIds.includes(participant.agentId)
+        )?.agentId ?? fallbackMemberIds[0] ?? ''
+    setSquadEditor({
+      sceneId: scene.id,
+      memberAgentIds: fallbackMemberIds,
+      defaultLeadAgentId
+    })
+    setSquadError(null)
+  }
+
+  const toggleSquadMember = (agentId: string): void => {
+    if (!squadEditor) return
+    const selected = squadEditor.memberAgentIds.includes(agentId)
+    if (!selected && squadEditor.memberAgentIds.length >= MAX_DISCUSSION_SCENE_SQUAD_MEMBERS) {
+      setSquadError(`每个预设小队最多 ${MAX_DISCUSSION_SCENE_SQUAD_MEMBERS} 位队员。`)
+      return
+    }
+    const memberAgentIds = selected
+      ? squadEditor.memberAgentIds.filter((candidate) => candidate !== agentId)
+      : presentAgents
+          .filter((agent) => squadEditor.memberAgentIds.includes(agent.agentId) || agent.agentId === agentId)
+          .map((agent) => agent.agentId)
+    setSquadEditor({
+      ...squadEditor,
+      memberAgentIds,
+      defaultLeadAgentId: memberAgentIds.includes(squadEditor.defaultLeadAgentId)
+        ? squadEditor.defaultLeadAgentId
+        : memberAgentIds[0] ?? ''
+    })
+    setSquadError(null)
+  }
+
+  const saveSquadEditor = (): void => {
+    if (!squadEditor) return
+    const { squad, error } = normalizeDiscussionSceneSquad(squadEditor)
+    if (!squad) {
+      setSquadError(error ?? '预设小队无效。')
+      return
+    }
+    const nextSquads = [
+      ...sceneSquads.filter((candidate) => candidate.sceneId !== squad.sceneId),
+      squad
+    ]
+    if (!persistSceneSquads(nextSquads)) return
+    setSquadEditor(null)
+    setSquadError(null)
+  }
+
+  const clearSelectedSquad = (): void => {
+    if (!selectedSquad) return
+    if (!persistSceneSquads(sceneSquads.filter((squad) => squad.sceneId !== selectedSquad.sceneId))) return
+    setSquadEditor(null)
+    setSquadError(null)
+  }
+
   const beginNewScene = (): void => {
     setEditorDraft({ ...BLANK_DISCUSSION_SCENE })
     setEditorError(null)
     setConfirmingDeleteId(null)
+    setSquadEditor(null)
   }
 
   const beginEditingScene = (scene: DiscussionSceneTemplate): void => {
@@ -148,6 +308,7 @@ export function DiscussionSceneLauncher({
     ))
     setEditorError(null)
     setConfirmingDeleteId(null)
+    setSquadEditor(null)
   }
 
   const saveEditor = (event: FormEvent): void => {
@@ -205,8 +366,10 @@ export function DiscussionSceneLauncher({
     }
     const nextScenes = customScenes.filter((scene) => scene.id !== selectedScene.id)
     if (!persistCustomScenes(nextScenes)) return
+    persistSceneSquads(sceneSquads.filter((squad) => squad.sceneId !== selectedScene.id))
     setSelectedSceneId(BUILTIN_DISCUSSION_SCENES[0].id)
     setConfirmingDeleteId(null)
+    setSquadEditor(null)
   }
 
   return (
@@ -224,11 +387,13 @@ export function DiscussionSceneLauncher({
               setEditorDraft(null)
               setEditorError(null)
               setConfirmingDeleteId(null)
+              setSquadEditor(null)
+              setSquadError(null)
             }
           }}
         >
           <Dialog.Trigger asChild>
-            <button className="discussion-scene-manage" type="button">管理自定义场景</button>
+            <button className="discussion-scene-manage" type="button">管理场景与小队</button>
           </Dialog.Trigger>
           <Dialog.Portal>
             <Dialog.Overlay className="dialog-overlay app-dialog-overlay" />
@@ -264,7 +429,7 @@ export function DiscussionSceneLauncher({
                         icon="sparkles"
                         kicker="DISCUSSION SCENES"
                         title="讨论场景库"
-                        description="选择内置工程场景，或保存自己的角色、议程和输出要求。"
+                        description="定义角色、议程、输出要求和预设小队；场景启动后仍可临时增加队员。"
                         descriptionId="discussion-scene-dialog-description"
                       />
                       <AppDialogBody className="discussion-scene-library-body">
@@ -280,11 +445,15 @@ export function DiscussionSceneLauncher({
                                 onClick={() => {
                                   setSelectedSceneId(scene.id)
                                   setConfirmingDeleteId(null)
+                                  setSquadEditor(null)
+                                  setSquadError(null)
                                 }}
                               >
                                 <span>{DISCUSSION_SCENE_CATEGORY_LABELS[scene.category]}</span>
                                 <strong>{scene.name}</strong>
-                                <small>{isBuiltinDiscussionScene(scene) ? '内置' : '自定义'}</small>
+                                <small>
+                                  {isBuiltinDiscussionScene(scene) ? '内置' : '自定义'} · {discussionSceneSquadFor(scene.id, sceneSquads)?.memberAgentIds.length ?? 0} 人小队
+                                </small>
                               </button>
                             ))}
                           </div>
@@ -301,13 +470,34 @@ export function DiscussionSceneLauncher({
                           {selectedScene.instructions && (
                             <div className="discussion-scene-instruction"><strong>补充要求</strong><p>{selectedScene.instructions}</p></div>
                           )}
+                          {squadEditor?.sceneId === selectedScene.id
+                            ? (
+                                <SceneSquadEditor
+                                  draft={squadEditor}
+                                  candidates={presentAgents}
+                                  error={squadError}
+                                  onToggle={toggleSquadMember}
+                                  onLead={(agentId) => setSquadEditor({ ...squadEditor, defaultLeadAgentId: agentId })}
+                                  onCancel={() => { setSquadEditor(null); setSquadError(null) }}
+                                  onSave={saveSquadEditor}
+                                />
+                              )
+                            : (
+                                <SceneSquadSummary
+                                  squad={selectedSquad}
+                                  agents={agents}
+                                  onEdit={() => beginSquadEditing(selectedScene)}
+                                  onClear={selectedSquad ? clearSelectedSquad : undefined}
+                                />
+                              )}
                           <p className="discussion-scene-authority-note">
-                            场景只填充当前 Camp 的权威草稿，不会修改队员身份，也不会自动发送或启动执行。
+                            场景会确保预设小队进入当前会话，但不会修改队员的长期身份；临时队员只属于本会话。草稿仍不会自动发送或启动执行。
                           </p>
                           {hasExistingDraft && (
                             <p className="discussion-scene-delete-warning" role="alert">输入框已有草稿。继续将用该场景提纲覆盖现有正文；已添加的附件不受影响。</p>
                           )}
                           {storageError && <p className="discussion-scene-error" role="alert">{storageError}</p>}
+                          {actionError && <p className="discussion-scene-error" role="alert">{actionError}</p>}
                           {confirmingDeleteId === selectedScene.id && (
                             <p className="discussion-scene-delete-warning" role="alert">再次点击“确认删除”将从本机移除此场景，内置场景和已有对话不受影响。</p>
                           )}
@@ -324,8 +514,8 @@ export function DiscussionSceneLauncher({
                         <button className="quiet-button" type="button" onClick={() => beginEditingScene(selectedScene)}>
                           {isBuiltinDiscussionScene(selectedScene) ? '复制并编辑' : '编辑'}
                         </button>
-                        <button className="primary-button" type="button" disabled={!draftReady} onClick={() => applyScene(selectedScene)}>
-                          {hasExistingDraft ? '覆盖并填入' : '填入输入框'}
+                        <button className="primary-button" type="button" disabled={!draftReady || Boolean(applyingSceneId)} onClick={() => void applyScene(selectedScene).catch(() => undefined)}>
+                          {applyingSceneId === selectedScene.id ? '正在集结小队…' : hasExistingDraft ? '覆盖并填入' : '集结小队并填入'}
                         </button>
                       </AppDialogFooter>
                     </>
@@ -337,13 +527,14 @@ export function DiscussionSceneLauncher({
 
       <div className="discussion-scene-grid" aria-label="常用讨论场景">
         {launcherScenes.map((scene) => (
-          <button type="button" key={scene.id} disabled={!draftReady} onClick={() => requestScene(scene)}>
+          <button type="button" key={scene.id} disabled={!draftReady || Boolean(applyingSceneId)} onClick={() => requestScene(scene)}>
             <span>{DISCUSSION_SCENE_CATEGORY_LABELS[scene.category]}</span>
             <strong>{scene.name}</strong>
-            <small>{scene.summary}</small>
+            <small>{scene.summary}{discussionSceneSquadFor(scene.id, sceneSquads) ? ` · 预设 ${discussionSceneSquadFor(scene.id, sceneSquads)?.memberAgentIds.length} 人` : ''}</small>
           </button>
         ))}
       </div>
+      {actionError && !dialogOpen && <p className="discussion-scene-error" role="alert">{actionError}</p>}
     </section>
   )
 }
@@ -372,6 +563,97 @@ function DiscussionSceneEditorFields({
       </div>
       <label>最终交付 <small>每行一项 · 最多 12 项</small><textarea rows={4} maxLength={5_000} value={draft.deliverables} onChange={(event) => onChange({ ...draft, deliverables: event.target.value })} /></label>
       <label>补充要求 <small>可选</small><textarea rows={3} value={draft.instructions} maxLength={2_000} onChange={(event) => onChange({ ...draft, instructions: event.target.value })} placeholder="例如：额外关注功耗、法规、版本兼容或量产测试。" /></label>
+    </div>
+  )
+}
+
+function SceneSquadSummary({
+  squad,
+  agents,
+  onEdit,
+  onClear
+}: {
+  squad: DiscussionSceneSquadPreset | null
+  agents: AgentProfile[]
+  onEdit(): void
+  onClear?(): void
+}): React.JSX.Element {
+  const agentById = new Map(agents.map((agent) => [agent.agentId, agent]))
+  const availableMembers = squad?.memberAgentIds.flatMap((agentId) => {
+    const agent = agentById.get(agentId)
+    return agent?.presence === 'present' ? [agent] : []
+  }) ?? []
+  const unavailableCount = (squad?.memberAgentIds.length ?? 0) - availableMembers.length
+  return (
+    <div className="discussion-scene-squad">
+      <div className="discussion-scene-squad-heading">
+        <div><strong>预设小队</strong><small>创建会话时自动选中；已有会话会补齐缺少的队员。</small></div>
+        <div>
+          {onClear && <button type="button" className="quiet-button compact" onClick={onClear}>清除</button>}
+          <button type="button" className="quiet-button compact" onClick={onEdit}>{squad ? '调整小队' : '配置小队'}</button>
+        </div>
+      </div>
+      {squad
+        ? (
+            <div className="discussion-scene-squad-members">
+              {availableMembers.map((agent) => (
+                <span className={agent.agentId === squad.defaultLeadAgentId ? 'is-lead' : ''} key={agent.agentId}>
+                  <MemberAvatar agentId={agent.agentId} avatarRef={agent.avatarRef} displayName={agent.displayName} size="mention" decorative />
+                  <span><strong>{agent.displayName}</strong><small>{agent.agentId === squad.defaultLeadAgentId ? `负责人 · ${agent.teamRole || '队员'}` : agent.teamRole || '队员'}</small></span>
+                </span>
+              ))}
+              {unavailableCount > 0 && <em>{unavailableCount} 位已配置队员当前不可用</em>}
+            </div>
+          )
+        : <p className="discussion-scene-squad-empty">尚未配置，启动时沿用当前会话的小队。</p>}
+    </div>
+  )
+}
+
+function SceneSquadEditor({
+  draft,
+  candidates,
+  error,
+  onToggle,
+  onLead,
+  onCancel,
+  onSave
+}: {
+  draft: DiscussionSceneSquadPreset
+  candidates: AgentProfile[]
+  error: string | null
+  onToggle(agentId: string): void
+  onLead(agentId: string): void
+  onCancel(): void
+  onSave(): void
+}): React.JSX.Element {
+  const selected = candidates.filter((agent) => draft.memberAgentIds.includes(agent.agentId))
+  return (
+    <div className="discussion-scene-squad is-editing">
+      <div className="discussion-scene-squad-heading">
+        <div><strong>配置预设小队</strong><small>只保存队员引用，不复制或修改队员身份 · 已选 {draft.memberAgentIds.length}/{MAX_DISCUSSION_SCENE_SQUAD_MEMBERS}</small></div>
+      </div>
+      <div className="discussion-scene-squad-options" role="group" aria-label="选择预设队员">
+        {candidates.map((agent) => (
+          <label className={draft.memberAgentIds.includes(agent.agentId) ? 'selected' : ''} key={agent.agentId}>
+            <input type="checkbox" checked={draft.memberAgentIds.includes(agent.agentId)} onChange={() => onToggle(agent.agentId)} />
+            <MemberAvatar agentId={agent.agentId} avatarRef={agent.avatarRef} displayName={agent.displayName} size="mention" decorative />
+            <span><strong>{agent.displayName}</strong><small>{agent.teamRole || '队员'}</small></span>
+          </label>
+        ))}
+        {candidates.length === 0 && <p>当前没有可加入预设小队的在队成员。</p>}
+      </div>
+      <label className="discussion-scene-squad-lead">
+        <span>预设负责人</span>
+        <select value={draft.defaultLeadAgentId} disabled={selected.length === 0} onChange={(event) => onLead(event.target.value)}>
+          {selected.map((agent) => <option value={agent.agentId} key={agent.agentId}>{agent.displayName} · {agent.teamRole || '队员'}</option>)}
+        </select>
+      </label>
+      {error && <p className="discussion-scene-error" role="alert">{error}</p>}
+      <div className="discussion-scene-squad-actions">
+        <button type="button" className="quiet-button compact" onClick={onCancel}>取消</button>
+        <button type="button" className="primary-button compact" onClick={onSave}>保存小队</button>
+      </div>
     </div>
   )
 }
