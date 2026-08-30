@@ -1406,6 +1406,7 @@ describe('task event projections', () => {
     expect(windowDragStripPage('settings')).toBe('settings')
     expect(windowDragStripPage('members')).toBe('members')
     expect(windowDragStripPage('memory')).toBe('memory')
+    expect(windowDragStripPage('mission')).toBe('mission')
     expect(windowDragStripPage('ppt')).toBe('ppt')
     expect(windowDragStripPage('camp')).toBeNull()
   })

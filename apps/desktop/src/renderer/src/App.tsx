@@ -84,6 +84,7 @@ import { MemoryLibrary } from './MemoryLibrary'
 import { DiagnosticsCenter } from './DiagnosticsCenter'
 import { RuntimeMonitoring } from './RuntimeMonitoring'
 import { PresentationWorkbench } from './PresentationWorkbench'
+import { MissionControlWorkbench } from './MissionControlWorkbench'
 import { localizeExecutionEngineTerms } from './product-copy'
 import {
   applyAppearanceSnapshot,
@@ -126,14 +127,15 @@ export function appendLiveRuntimeEvent(
 
 type LoadState = 'loading' | 'ready' | 'error'
 type StartupStatus = 'loading' | 'waiting' | 'resolved'
-export type View = 'compose' | 'camp' | 'members' | 'memory' | 'ppt' | 'settings'
+export type View = 'compose' | 'camp' | 'members' | 'memory' | 'mission' | 'ppt' | 'settings'
 export type SettingsSection = NavigationSettingsSection
-export type WindowDragStripPage = Extract<View, 'compose' | 'members' | 'memory' | 'ppt' | 'settings'>
+export type WindowDragStripPage = Extract<View, 'compose' | 'members' | 'memory' | 'mission' | 'ppt' | 'settings'>
 
 export function windowDragStripPage(view: View): WindowDragStripPage | null {
   return view === 'compose'
     || view === 'members'
     || view === 'memory'
+    || view === 'mission'
     || view === 'ppt'
     || view === 'settings'
     ? view
@@ -2577,6 +2579,7 @@ export function App(): React.JSX.Element {
     camp: 'task-content camp-content',
     members: 'members-content',
     memory: 'memory-content',
+    mission: 'mission-content',
     ppt: 'ppt-content',
     settings: 'settings-content'
   }
@@ -2715,6 +2718,7 @@ export function App(): React.JSX.Element {
           setMemoryFocusId(null)
           chooseView('memory')
         }}
+        onMissionControl={() => chooseView('mission')}
         onPresentations={() => chooseView('ppt')}
         pendingMemoryCount={pendingMemoryCount}
         onSettings={() => chooseView('settings')}
@@ -2866,6 +2870,20 @@ export function App(): React.JSX.Element {
         )}
 
         {!startupGateVisible && view === 'ppt' && <PresentationWorkbench />}
+
+        {!startupGateVisible && view === 'mission' && (
+          <MissionControlWorkbench
+            navigation={displayNavigation}
+            agents={agents}
+            installations={installations}
+            onOpenCamp={(camp) => {
+              setCampInspectorTab('tasks')
+              setCampInspectorVisible(true)
+              chooseCamp(camp)
+            }}
+            onNewCollaboration={beginNewConversation}
+          />
+        )}
 
         {!startupGateVisible && view === 'settings' && (
           <SettingsView

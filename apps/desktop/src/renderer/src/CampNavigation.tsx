@@ -196,6 +196,7 @@ export function CampNavigation({
   onNewConversation,
   onMembers,
   onMemory,
+  onMissionControl = () => undefined,
   onPresentations = () => undefined,
   pendingMemoryCount,
   onSettings,
@@ -212,7 +213,7 @@ export function CampNavigation({
   onDelete,
   onError
 }: {
-  view: 'compose' | 'camp' | 'members' | 'memory' | 'ppt' | 'settings'
+  view: 'compose' | 'camp' | 'members' | 'memory' | 'mission' | 'ppt' | 'settings'
   state: 'loading' | 'ready' | 'error'
   navigation: NavigationSnapshot | null
   activeCampId: string | null
@@ -227,6 +228,7 @@ export function CampNavigation({
   onNewConversation(): void
   onMembers(): void
   onMemory(): void
+  onMissionControl?(): void
   onPresentations?(): void
   pendingMemoryCount: number
   onSettings(): void
@@ -550,6 +552,9 @@ export function CampNavigation({
                   </button>
                   <button className={`rail-button ${view === 'ppt' ? 'active' : ''}`} type="button" aria-current={view === 'ppt' ? 'page' : undefined} aria-label="PPT 工作台" title="PPT 工作台" onClick={onPresentations}>
                     <span className="rail-glyph" aria-hidden="true"><NavigationIcon name="presentation" /></span><span className="rail-label">PPT 工作台</span>
+                  </button>
+                  <button className={`rail-button ${view === 'mission' ? 'active' : ''}`} type="button" aria-current={view === 'mission' ? 'page' : undefined} aria-label="协作工作台" title="协作工作台" onClick={onMissionControl}>
+                    <span className="rail-glyph" aria-hidden="true"><NavigationIcon name="mission-control" /></span><span className="rail-label">协作工作台</span>
                   </button>
                 </nav>
                 <button className="conversation-jump" type="button" onClick={() => setPaletteOpen(true)}>
