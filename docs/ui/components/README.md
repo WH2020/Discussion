@@ -15,6 +15,7 @@ Dialog、Popover 等基础原子遵守根目录 [`DESIGN.md`](../../../DESIGN.md
 | [App Shell 与统一侧栏](app-shell-navigation.md) | 一级导航、Project/Camp 投影、Quick Chat、设置入口和窗口布局 |
 | [Camp 会话工作区](conversation-workspace.md) | 消息、过程 Drawer、Task、Approval、Composer、Inspector、Stop 与关闭等待面 |
 | [工程讨论场景](discussion-scenes.md) | 空 Camp 场景入口、本机自定义模板、角色视角、Draft-only 填充和编排降级 |
+| [PPT 工作台](presentation-workbench.md) | 独立项目库、五阶段逐页工作流、本机恢复、放映与 PPTX 导出 |
 | [首次训练与“初次集结”](first-run-onboarding.md) | 三页 mandatory gate、Runtime/模型选择、断点恢复与真实 Quick Chat 的 Draft-only starter |
 | [结构化 Mention](structured-mentions.md) | Composer/历史消息的身份 token、Popover、复制粘贴、键盘和选择边界 |
 | [应用内提醒与会话未读](notification-center.md) | 暂时隐藏持久中心后的轻量 heads-up、Camp 未读点、精确可见确认与错误恢复 |

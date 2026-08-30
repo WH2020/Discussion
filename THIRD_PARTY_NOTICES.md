@@ -65,14 +65,19 @@ semantic differences after normalized comparison. See
 
 ## 6. JavaScript Dependencies
 
-The frozen pnpm graph contains 494 exact package instances: 149 production
-instances and 345 development-only instances. Electron Builder packages 144
-instances in `app.asar`; the five pruned production-graph-only instances are
-recorded explicitly in `legal/manifests/javascript-binary-dependencies.json`.
-The source graph, direct/transitive classification, SPDX expressions,
-license-file source, and SHA-256 values are in
-`legal/manifests/javascript-source-dependencies.json` and
-`legal/licenses/javascript/`.
+The last full-release frozen pnpm baseline contains 494 exact package
+instances: 149 production instances and 345 development-only instances.
+The PPT workbench adds 11 production instances, bringing the current source
+graph to 505 instances: 160 production and 345 development-only. Its additive
+exact-version, SPDX, lockfile-integrity, classification, and license-file
+record is `legal/manifests/pptx-export-dependencies.json`; the baseline source
+record remains `legal/manifests/javascript-source-dependencies.json`.
+
+The baseline Electron Builder audit packages 144 instances in `app.asar`; the
+five baseline production-graph-only instances are recorded explicitly in
+`legal/manifests/javascript-binary-dependencies.json`. The binary manifest must
+be regenerated against a packaged release before publishing the PPT workbench.
+All retained license files live under `legal/licenses/javascript/`.
 
 All 144 bundled instances have corresponding repository legal files: 143 use
 the exact package files and one uses the curated clarification below. The
@@ -131,3 +136,20 @@ Rovai AI does not claim rights in third-party product names, logos,
 trademarks, characters, or people merely because a compatibility surface,
 notice, schema, or project artwork refers to them. All such rights remain with
 their respective owners.
+
+## 10. PPT Workbench Sources
+
+The stage-oriented workflow and workbench decomposition of Rovai's PPT
+Workbench were informed by `zhx47/ppt-agent`, commit `837cf66`, licensed under
+Apache-2.0. Rovai does not bundle that repository's FastAPI service, Python
+runtime, database, prompts, credentials, or source files; the local workflow
+and Renderer implementation are independently adapted to Rovai's architecture.
+The upstream project remains available at
+https://github.com/zhx47/ppt-agent.
+
+PowerPoint file generation uses `pptxgenjs 4.0.1`, MIT, Copyright (c)
+2015-2022 Brent Ely. The exact license text is retained at
+`legal/licenses/javascript/pptxgenjs@4.0.1/LICENSE`.
+Its ten exact transitive package instances and their complete packaged license
+files (or, for `https 1.0.0`, its ISC metadata notice) are recorded in
+`legal/manifests/pptx-export-dependencies.json`.

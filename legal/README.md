@@ -8,6 +8,12 @@ These files are static source records. The project does not run a legal
 generation, preparation, source-check, binary-check, or package-check pipeline,
 and macOS packaging does not depend on this directory.
 
+`manifests/pptx-export-dependencies.json` is an additive source-graph record for
+the PPT workbench dependency introduced after the last full JavaScript legal
+freeze. Its package license files are retained beside the existing JavaScript
+records. The full source and binary manifests must be regenerated before the
+next packaged release.
+
 For the MPL-covered `option-ext 0.2.0` component, the relevant repository paths
 are:
 

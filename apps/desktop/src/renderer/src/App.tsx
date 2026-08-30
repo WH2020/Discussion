@@ -83,6 +83,7 @@ import { GeneralSettings } from './GeneralSettings'
 import { MemoryLibrary } from './MemoryLibrary'
 import { DiagnosticsCenter } from './DiagnosticsCenter'
 import { RuntimeMonitoring } from './RuntimeMonitoring'
+import { PresentationWorkbench } from './PresentationWorkbench'
 import { localizeExecutionEngineTerms } from './product-copy'
 import {
   applyAppearanceSnapshot,
@@ -125,14 +126,15 @@ export function appendLiveRuntimeEvent(
 
 type LoadState = 'loading' | 'ready' | 'error'
 type StartupStatus = 'loading' | 'waiting' | 'resolved'
-export type View = 'compose' | 'camp' | 'members' | 'memory' | 'settings'
+export type View = 'compose' | 'camp' | 'members' | 'memory' | 'ppt' | 'settings'
 export type SettingsSection = NavigationSettingsSection
-export type WindowDragStripPage = Extract<View, 'compose' | 'members' | 'memory' | 'settings'>
+export type WindowDragStripPage = Extract<View, 'compose' | 'members' | 'memory' | 'ppt' | 'settings'>
 
 export function windowDragStripPage(view: View): WindowDragStripPage | null {
   return view === 'compose'
     || view === 'members'
     || view === 'memory'
+    || view === 'ppt'
     || view === 'settings'
     ? view
     : null
@@ -2575,6 +2577,7 @@ export function App(): React.JSX.Element {
     camp: 'task-content camp-content',
     members: 'members-content',
     memory: 'memory-content',
+    ppt: 'ppt-content',
     settings: 'settings-content'
   }
   const startupGateVisible = startupGateShouldBeVisible(startupSnapshot)
@@ -2712,6 +2715,7 @@ export function App(): React.JSX.Element {
           setMemoryFocusId(null)
           chooseView('memory')
         }}
+        onPresentations={() => chooseView('ppt')}
         pendingMemoryCount={pendingMemoryCount}
         onSettings={() => chooseView('settings')}
         onSettingsSectionChange={chooseSettingsSection}
@@ -2860,6 +2864,8 @@ export function App(): React.JSX.Element {
             onReady={commitMemoryLocation}
           />
         )}
+
+        {!startupGateVisible && view === 'ppt' && <PresentationWorkbench />}
 
         {!startupGateVisible && view === 'settings' && (
           <SettingsView

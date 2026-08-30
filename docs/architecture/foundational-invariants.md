@@ -422,6 +422,9 @@ last_updated: 2026-08-24
 - 正式产品名是 **Rovai-ai**，仓库/package slug 为 `rovai-ai`，普通内部命名使用 `rovai`，Rust package/crate/executable 使用 `rovai-core` / `rovai_core`。旧 namespace 只在受控迁移或外部兼容边界保留。
 - 普通导航使用“置顶 / 项目”投影：directory-backed Project 与 Quick Chat 分组来自 Camp workspace read model。设置在同一侧栏槽位以显式模式覆盖，不创造第二导航真源。
 - Sidebar wordmark 是展示资产，不定义产品领域身份；Core 健康和诊断只从诊断入口读取，不常驻普通导航制造伪状态。
+- PPT 工作台是与 Camp 并列的一级本机创作表面。其版本化项目库只保存演示需求、逐页资料、内容和视觉草稿，
+  不成为 Camp、Task、Message、AgentRun、Evidence、Memory 或 Runtime 的第二权威；阶段切换和编辑不自动发送消息、
+  启动 Agent、访问网络或调用模型。只有用户显式导出才产生本机 `.pptx` 文件。
 
 <a id="product-execution-surface"></a>
 

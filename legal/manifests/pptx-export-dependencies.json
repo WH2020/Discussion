@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "scope": "additive-source-graph-for-pptx-export",
+  "package_instances": 11,
+  "packages": [
+    {
+      "name": "pptxgenjs",
+      "version": "4.0.1",
+      "classification": "direct",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-TeJISr8wouAuXw4C1F/mC33xbZs/FuEG6nH9FG1Zj+nuPcGMP5YRHl6X+j3HSUnS1f3at6k75ZZXPMZlA5Lj9A==",
+      "license_files": ["legal/licenses/javascript/pptxgenjs@4.0.1/LICENSE"]
+    },
+    {
+      "name": "@types/node",
+      "version": "22.20.1",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==",
+      "license_files": ["legal/licenses/javascript/@types+node@22.20.1/LICENSE"]
+    },
+    {
+      "name": "https",
+      "version": "1.0.0",
+      "classification": "transitive",
+      "license": "ISC",
+      "lockfile_integrity": "sha512-4EC57ddXrkaF0x83Oj8sM6SLQHAWXw90Skqu2M4AEWENZ3F02dFJE/GARA8igO79tcgYqGrD7ae4f5L3um2lgg==",
+      "license_files": ["legal/licenses/javascript/https@1.0.0/LICENSE-NOTICE"]
+    },
+    {
+      "name": "image-size",
+      "version": "1.2.1",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-rH+46sQJ2dlwfjfhCyNx5thzrv+dtmBIhPHk0zgRUukHzZ/kRueTJXoYYsclBaKcSMBWuGbOFXtioLpzTb5euw==",
+      "license_files": ["legal/licenses/javascript/image-size@1.2.1/LICENSE"]
+    },
+    {
+      "name": "immediate",
+      "version": "3.0.6",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-XXOFtyqDjNDAQxVfYxuF7g9Il/IbWmmlQg2MYKOH8ExIT1qg6xc4zyS3HaEEATgs1btfzxq15ciUiY7gjSXRGQ==",
+      "license_files": ["legal/licenses/javascript/immediate@3.0.6/LICENSE.txt"]
+    },
+    {
+      "name": "jszip",
+      "version": "3.10.1",
+      "classification": "transitive",
+      "license": "(MIT OR GPL-3.0-or-later)",
+      "lockfile_integrity": "sha512-xXDvecyTpGLrqFrvkrUSoxxfJI5AH7U8zxxtVclpsUtMCq4JQ290LY8AW5c7Ggnr/Y/oK+bQMbqK2qmtk3pN4g==",
+      "license_files": ["legal/licenses/javascript/jszip@3.10.1/LICENSE.markdown"]
+    },
+    {
+      "name": "lie",
+      "version": "3.3.0",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-UaiMJzeWRlEujzAuw5LokY1L5ecNQYZKfmyZ9L7wDHb/p5etKaxXhohBcrw0EYby+G/NA52vRSN4N39dxHAIwQ==",
+      "license_files": ["legal/licenses/javascript/lie@3.3.0/license.md"]
+    },
+    {
+      "name": "pako",
+      "version": "1.0.11",
+      "classification": "transitive",
+      "license": "(MIT AND Zlib)",
+      "lockfile_integrity": "sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==",
+      "license_files": ["legal/licenses/javascript/pako@1.0.11/LICENSE"]
+    },
+    {
+      "name": "queue",
+      "version": "6.0.2",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-iHZWu+q3IdFZFX36ro/lKBkSvfkztY5Y7HMiPlOUjhupPcG2JMfst2KKEpu5XndviX/3UhFbRngUPNKtgvtZiA==",
+      "license_files": ["legal/licenses/javascript/queue@6.0.2/LICENSE"]
+    },
+    {
+      "name": "setimmediate",
+      "version": "1.0.5",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-MATJdZp8sLqDl/68LfQmbP8zKPLQNV6BIZoIgrscFDQ+RsvK/BxeDQOgyxKKoh0y/8h3BqVFnCqQ/gd+reiIXA==",
+      "license_files": ["legal/licenses/javascript/setimmediate@1.0.5/LICENSE.txt"]
+    },
+    {
+      "name": "undici-types",
+      "version": "6.21.0",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==",
+      "license_files": ["legal/licenses/javascript/undici-types@6.21.0/LICENSE"]
+    }
+  ]
+}
