@@ -44,6 +44,10 @@ Windows x64 安装包当前未签名，SmartScreen 可能显示“未知发布�
 
 首次训练不会替你安装 Agent Runtime，也不会接管对应产品的账号。准备使用某个 Runtime 前，需要先按它自己的官方方式完成安装和登录。
 
+Windows 上通过全局 npm 安装 Codex CLI 时，Rovai 会从 `@openai/codex` 的标准 nested 或 hoisted
+`codex-win32-x64` 平台包中解析原生 `codex.exe`。出于进程与身份边界，Rovai 不直接执行
+`codex.cmd`、`codex.ps1` 等脚本 shim；平台原生包缺失时仍会如实显示“未安装”。
+
 ## 准备 Agent Runtime
 
 你不需要安装全部 Runtime，只需要准备实际要使用的一个或几个。
