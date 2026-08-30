@@ -15,6 +15,7 @@ import {
   CoreClient,
   coreProcessHomeDirectory,
   coreLaunchArguments,
+  coreRequestTimeout,
   desktopSkillLibraryRoot,
   runtimeCampFilesRoot,
   sidecarExecutableName,
@@ -38,6 +39,11 @@ afterEach(() => {
 })
 
 describe('CoreClient planned shutdown', () => {
+  it('allows explicit presentation analysis to outlive ordinary Core reads', () => {
+    expect(coreRequestTimeout('health.check')).toBe(60_000)
+    expect(coreRequestTimeout('presentations.outline.generate')).toBe(420_000)
+  })
+
   it('uses one closed target key and the native executable suffix', () => {
     expect(sidecarTargetKey('darwin', 'arm64')).toBe('macos-arm64')
     expect(sidecarTargetKey('darwin', 'x64')).toBe('macos-x64')

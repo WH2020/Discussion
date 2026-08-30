@@ -77,6 +77,7 @@ import {
   resolveWindowsDataRoot
 } from './windows-data-root'
 import { AppUpdatesService, type DesktopAutoUpdater } from './app-updates'
+import { PresentationAgentService } from './presentation-agent'
 
 const mainStartupStartedAt = performance.now()
 console.info('[startup] stage=main_module_loaded elapsed_ms=0.0')
@@ -220,6 +221,7 @@ const isolatedAcceptanceInstance =
 const primaryInstance = isolatedAcceptanceInstance || app.requestSingleInstanceLock()
 if (!primaryInstance) app.quit()
 const core = new CoreClient(coreDataPath)
+const presentations = new PresentationAgentService(core)
 let appUpdates: AppUpdatesService | null = null
 let mainWindow: BrowserWindow | null = null
 let themePreference: ThemePreference = 'system'
@@ -542,6 +544,27 @@ ipcMain.handle('rovai:request', async (_event, method: CoreMethod, params?: unkn
 
 ipcMain.handle('rovai:clipboard-write', (_event, input: unknown) => {
   clipboard.write(parseClipboardWriteRequest(input))
+})
+
+ipcMain.handle('rovai:presentation-select-source', async (event) => {
+  const window = requireMainWindow(event.sender)
+  const result = await dialog.showOpenDialog(window, {
+    title: '选择 PPT 分析资料',
+    buttonLabel: '读取资料',
+    properties: ['openFile'],
+    filters: [
+      { name: '支持的资料', extensions: ['docx', 'md', 'markdown', 'txt'] },
+      { name: 'Word 文档', extensions: ['docx'] },
+      { name: '文本资料', extensions: ['md', 'markdown', 'txt'] }
+    ]
+  })
+  if (result.canceled || !result.filePaths[0]) return null
+  return presentations.inspectSource(result.filePaths[0])
+})
+
+ipcMain.handle('rovai:presentation-generate-outline', async (event, input: unknown) => {
+  requireMainWindow(event.sender)
+  return presentations.generateOutline(input)
 })
 
 ipcMain.handle('rovai:appearance-get', () => appearanceSnapshot())

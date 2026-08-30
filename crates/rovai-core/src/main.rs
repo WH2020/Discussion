@@ -31,7 +31,7 @@ use claude::{
 };
 use codex::{
     CodexAgentRunRuntimeRequest, CodexAgentThreadOptions, CodexCliRuntimeAdapter, CodexIncoming,
-    CodexLiveModelValidationError, CodexRuntime,
+    CodexInternalPromptRequest, CodexLiveModelValidationError, CodexRuntime,
 };
 #[cfg(target_os = "macos")]
 use rovai_core::managed_process::configure_user_automation_denial_root;
@@ -391,6 +391,7 @@ fn request_runs_outside_main_queue(method: &str) -> bool {
             | "runtime.product.ensure"
             | "runtime.product.check"
             | "runtime.modelCatalog.open"
+            | "presentations.outline.generate"
             | "camp.messages.send"
             | "userAutomation.camp.send"
             | "camp.attachments.prepareFromPath"
@@ -992,6 +993,65 @@ struct RuntimeDiscoveryRescanParams {
 #[serde(rename_all = "camelCase")]
 struct CheckProductRuntimeParams {
     runtime_kind: rovai_core::agent_profile::AdapterKind,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PresentationOutlineGenerateParams {
+    prompt: String,
+    output_schema: Value,
+}
+
+const PRESENTATION_PROMPT_MAX_BYTES: usize = 512 * 1024;
+const PRESENTATION_SCHEMA_MAX_BYTES: usize = 32 * 1024;
+const PRESENTATION_RESULT_MAX_BYTES: usize = 256 * 1024;
+
+fn validate_presentation_outline_generate_params(
+    params: &PresentationOutlineGenerateParams,
+) -> Result<()> {
+    let prompt_size = params.prompt.len();
+    if params.prompt.trim().is_empty() {
+        anyhow::bail!("presentation outline prompt is empty");
+    }
+    if prompt_size > PRESENTATION_PROMPT_MAX_BYTES {
+        anyhow::bail!(
+            "presentation outline prompt exceeds the {} byte limit",
+            PRESENTATION_PROMPT_MAX_BYTES
+        );
+    }
+    if !params.output_schema.is_object() {
+        anyhow::bail!("presentation outline outputSchema must be a JSON object");
+    }
+    let schema_size = serde_json::to_vec(&params.output_schema)?.len();
+    if schema_size > PRESENTATION_SCHEMA_MAX_BYTES {
+        anyhow::bail!(
+            "presentation outline outputSchema exceeds the {} byte limit",
+            PRESENTATION_SCHEMA_MAX_BYTES
+        );
+    }
+    Ok(())
+}
+
+fn parse_presentation_outline_result(raw: &str) -> Result<Value> {
+    if raw.len() > PRESENTATION_RESULT_MAX_BYTES {
+        anyhow::bail!(
+            "presentation outline result exceeds the {} byte limit",
+            PRESENTATION_RESULT_MAX_BYTES
+        );
+    }
+    let trimmed = raw.trim();
+    let json_text = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```JSON"))
+        .and_then(|value| value.strip_suffix("```"))
+        .map(str::trim)
+        .unwrap_or(trimmed);
+    let result: Value = serde_json::from_str(json_text)
+        .context("Codex returned an invalid presentation outline JSON payload")?;
+    if !result.is_object() {
+        anyhow::bail!("Codex returned a non-object presentation outline payload");
+    }
+    Ok(result)
 }
 
 #[derive(Debug, Deserialize)]
@@ -2249,6 +2309,118 @@ impl Core {
         *self.runtime_search_environment.write().await = Arc::new(search);
         self.run_runtime_discovery().await;
         self.runtime_health_payload().await
+    }
+
+    async fn generate_presentation_outline(
+        &self,
+        params: PresentationOutlineGenerateParams,
+    ) -> Result<Value> {
+        validate_presentation_outline_generate_params(&params)?;
+        let _runtime_route_permit = self
+            .planned_shutdown
+            .enter_runtime_route()
+            .await
+            .context("Codex Runtime route is fenced for planned shutdown")?;
+        let mut installation = {
+            let database = self.database.lock().await;
+            AgentProfileService::default().managed_installation(
+                &database,
+                AdapterKind::CodexCli,
+                "default",
+            )?
+        };
+        let snapshot_is_ready = installation.as_ref().is_some_and(|installation| {
+            installation.enabled
+                && installation.path_state == "valid"
+                && installation.snapshot.as_ref().is_some_and(|snapshot| {
+                    snapshot.probe_status == "ready"
+                        && snapshot.authentication_status == "authenticated"
+                        && snapshot.stale_at.is_none()
+                        && snapshot.executable_fingerprint.is_some()
+                })
+        });
+        if !snapshot_is_ready {
+            let outcome = self
+                .await_runtime_check(
+                    AdapterKind::CodexCli,
+                    RuntimeLaunchPurpose::AvailabilityCheck,
+                    RuntimeCheckTrigger::UserCheck,
+                )
+                .await
+                .context("Codex Runtime availability check failed")?;
+            if !outcome.is_ready() {
+                anyhow::bail!(
+                    "Codex Runtime is not ready for presentation analysis ({})",
+                    outcome.public_status()
+                );
+            }
+            installation = {
+                let database = self.database.lock().await;
+                AgentProfileService::default().managed_installation(
+                    &database,
+                    AdapterKind::CodexCli,
+                    "default",
+                )?
+            };
+        }
+        let installation = installation.context("Codex Runtime installation was not found")?;
+        if !installation.enabled || installation.path_state != "valid" {
+            anyhow::bail!("Codex Runtime installation is disabled or unavailable");
+        }
+        let snapshot = installation
+            .snapshot
+            .as_ref()
+            .context("Codex Runtime has no verified capability snapshot")?;
+        if snapshot.probe_status != "ready" || snapshot.authentication_status != "authenticated" {
+            anyhow::bail!("Codex Runtime is not authenticated and ready");
+        }
+        let expected_fingerprint = snapshot
+            .executable_fingerprint
+            .as_deref()
+            .context("Codex Runtime has no verified executable fingerprint")?;
+        let executable_path = canonical_runtime_path(Path::new(&installation.executable_path));
+        let fingerprint_path = executable_path.clone();
+        let observed_fingerprint =
+            tokio::task::spawn_blocking(move || fingerprint_executable(&fingerprint_path))
+                .await
+                .context("Codex Runtime integrity worker failed")??;
+        if observed_fingerprint != expected_fingerprint {
+            anyhow::bail!("Codex Runtime executable identity changed; refresh the Runtime first");
+        }
+
+        let job_directory = self
+            .data_dir
+            .join("presentation-jobs")
+            .join(uuid::Uuid::new_v4().to_string());
+        tokio::fs::create_dir_all(&job_directory)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to create presentation analysis workspace {}",
+                    job_directory.display()
+                )
+            })?;
+        let generation = self
+            .codex_cli
+            .run_internal_structured_prompt(CodexInternalPromptRequest {
+                executable_path: &executable_path,
+                cwd: &job_directory,
+                prompt: &params.prompt,
+                output_schema: &params.output_schema,
+                timeout: Duration::from_secs(300),
+            })
+            .await;
+        if let Err(error) = tokio::fs::remove_dir_all(&job_directory).await {
+            eprintln!(
+                "failed to remove presentation analysis workspace {}: {error:#}",
+                job_directory.display()
+            );
+        }
+        let outline = parse_presentation_outline_result(&generation?)?;
+        Ok(json!({
+            "outline": outline,
+            "runtimeVersion": snapshot.reported_version,
+        }))
     }
 
     async fn open_runtime_model_catalog(&self, kind: AdapterKind) -> Result<Value> {
@@ -5989,6 +6161,11 @@ impl Core {
                 let params: CheckProductRuntimeParams =
                     serde_json::from_value(request.params.clone())?;
                 self.open_runtime_model_catalog(params.runtime_kind).await
+            }
+            "presentations.outline.generate" => {
+                let params: PresentationOutlineGenerateParams =
+                    serde_json::from_value(request.params.clone())?;
+                self.generate_presentation_outline(params).await
             }
             "health.check" => {
                 let git_path = self
@@ -17791,6 +17968,46 @@ while IFS= read -r _ignored; do :; done
         assert!(request_runs_outside_main_queue(
             "runtime.pendingExecution.cancel"
         ));
+        assert!(request_runs_outside_main_queue(
+            "presentations.outline.generate"
+        ));
+    }
+
+    #[test]
+    fn presentation_outline_requests_are_bounded_and_require_an_object_schema() {
+        let valid = PresentationOutlineGenerateParams {
+            prompt: "生成一份四页大纲".to_string(),
+            output_schema: json!({"type": "object"}),
+        };
+        validate_presentation_outline_generate_params(&valid).unwrap();
+
+        let empty = PresentationOutlineGenerateParams {
+            prompt: "  ".to_string(),
+            output_schema: json!({"type": "object"}),
+        };
+        assert!(validate_presentation_outline_generate_params(&empty).is_err());
+
+        let invalid_schema = PresentationOutlineGenerateParams {
+            prompt: "生成大纲".to_string(),
+            output_schema: json!([]),
+        };
+        assert!(validate_presentation_outline_generate_params(&invalid_schema).is_err());
+
+        let oversized = PresentationOutlineGenerateParams {
+            prompt: "x".repeat(PRESENTATION_PROMPT_MAX_BYTES + 1),
+            output_schema: json!({"type": "object"}),
+        };
+        assert!(validate_presentation_outline_generate_params(&oversized).is_err());
+    }
+
+    #[test]
+    fn presentation_outline_results_accept_json_and_reject_non_objects() {
+        assert_eq!(
+            parse_presentation_outline_result("```json\n{\"title\":\"结论\"}\n```").unwrap(),
+            json!({"title": "结论"})
+        );
+        assert!(parse_presentation_outline_result("[]").is_err());
+        assert!(parse_presentation_outline_result("not-json").is_err());
     }
 
     #[tokio::test]

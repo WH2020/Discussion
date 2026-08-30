@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "audience", "objective", "narrative", "slides"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "audience": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "objective": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "narrative": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "slides": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "title", "subtitle", "bullets", "speakerNotes", "evidence"],
+        "properties": {
+          "kind": { "enum": ["cover", "agenda", "content", "closing"] },
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "subtitle": { "type": "string", "maxLength": 240 },
+          "bullets": {
+            "type": "array",
+            "maxItems": 5,
+            "items": { "type": "string", "minLength": 1, "maxLength": 180 }
+          },
+          "speakerNotes": { "type": "string", "maxLength": 1200 },
+          "evidence": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sourceTitle", "excerpt"],
+              "properties": {
+                "sourceTitle": { "type": "string", "minLength": 1, "maxLength": 160 },
+                "excerpt": { "type": "string", "minLength": 1, "maxLength": 260 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

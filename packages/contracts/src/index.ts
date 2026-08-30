@@ -2493,6 +2493,7 @@ export type CoreMethod =
   | 'runtime.product.ensure'
   | 'runtime.product.check'
   | 'runtime.modelCatalog.open'
+  | 'presentations.outline.generate'
   | 'runtime.pendingExecution.cancel'
   | 'members.list'
   | 'members.get'
@@ -2627,6 +2628,7 @@ export interface RovaiApi {
   clipboard: {
     write(input: { text: string; html: string | null }): Promise<void>
   }
+  presentations: PresentationApi
   selectWorkspaceDirectory(): Promise<WorkspaceSelection | null>
   selectRuntimeExecutable(): Promise<string | null>
   selectSkillImportDirectory(): Promise<string | null>
@@ -2638,4 +2640,57 @@ export interface RovaiApi {
   exportMonitoring(filter: MonitoringFilter): Promise<string | null>
   revealMonitoringExport(path: string): Promise<void>
   platform: NodeJS.Platform
+}
+
+export type PresentationSourceDocumentKind = 'docx' | 'markdown' | 'text'
+
+export interface PresentationSourceDocument {
+  path: string
+  name: string
+  kind: PresentationSourceDocumentKind
+  byteSize: number
+  characterCount: number
+  preview: string
+  truncated: boolean
+}
+
+export interface PresentationOutlineGenerationInput {
+  request: string
+  title: string
+  audience: string
+  objective: string
+  slideCount: number
+  styleId: 'porcelain' | 'steel' | 'ember'
+  sourcePath: string | null
+}
+
+export interface PresentationOutlineEvidence {
+  sourceTitle: string
+  excerpt: string
+}
+
+export interface PresentationGeneratedSlide {
+  kind: 'cover' | 'agenda' | 'content' | 'closing'
+  title: string
+  subtitle: string
+  bullets: string[]
+  speakerNotes: string
+  evidence: PresentationOutlineEvidence[]
+}
+
+export interface PresentationOutlineGenerationResult {
+  title: string
+  audience: string
+  objective: string
+  narrative: string
+  runtimeVersion: string | null
+  sourceDocument: PresentationSourceDocument | null
+  slides: PresentationGeneratedSlide[]
+}
+
+export interface PresentationApi {
+  selectSourceDocument(): Promise<PresentationSourceDocument | null>
+  generateOutline(
+    input: PresentationOutlineGenerationInput
+  ): Promise<PresentationOutlineGenerationResult>
 }

@@ -153,3 +153,9 @@ PowerPoint file generation uses `pptxgenjs 4.0.1`, MIT, Copyright (c)
 Its ten exact transitive package instances and their complete packaged license
 files (or, for `https 1.0.0`, its ISC metadata notice) are recorded in
 `legal/manifests/pptx-export-dependencies.json`.
+
+DOCX text extraction uses `mammoth 1.12.2`, BSD-2-Clause, Copyright (c) 2013
+Michael Williamson. Its license is retained at
+`legal/licenses/javascript/mammoth@1.12.2/LICENSE`; the exact additive package
+graph and retained dependency notices are recorded in
+`legal/manifests/docx-import-dependencies.json`.

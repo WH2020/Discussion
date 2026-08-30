@@ -232,6 +232,14 @@ const api: RovaiApi = {
       return ipcRenderer.invoke('rovai:clipboard-write', input)
     }
   },
+  presentations: {
+    selectSourceDocument() {
+      return ipcRenderer.invoke('rovai:presentation-select-source')
+    },
+    generateOutline(input) {
+      return ipcRenderer.invoke('rovai:presentation-generate-outline', input)
+    }
+  },
   selectWorkspaceDirectory() {
     return ipcRenderer.invoke('rovai:select-workspace-directory')
   },

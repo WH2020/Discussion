@@ -36,6 +36,14 @@ export interface PresentationProject {
   styleId: PresentationStyleId
   currentStage: PresentationStage
   slides: PresentationSlide[]
+  sourceDocument?: PresentationSourceDocument | null
+  analysis?: {
+    provider: 'codex-cli'
+    runtimeVersion: string | null
+    narrative: string
+    status: 'ready' | 'stale'
+    generatedAt: string
+  } | null
   createdAt: string
   updatedAt: string
 }
@@ -110,77 +118,56 @@ export function emptyPresentationLibrary(): PresentationLibrary {
 
 export function createPresentationProject(
   input: PresentationProjectInput,
+  outline: PresentationOutlineGenerationResult,
   options: { now?: string; id?: () => string } = {}
 ): PresentationProject {
   const now = options.now ?? new Date().toISOString()
   const createId = options.id ?? (() => crypto.randomUUID())
-  const request = normalizedRequiredText(input.request, 2_000, 'PPT 需求不能为空')
-  const title = normalizedText(input.title, 120) || inferPresentationTitle(request)
-  const audience = normalizedText(input.audience, 120) || '项目相关决策者与协作成员'
-  const objective = normalizedText(input.objective, 240) || '让听众理解核心判断，并明确下一步行动。'
-  const requestedSlideCount = Number.isFinite(input.slideCount) ? input.slideCount : 8
-  const slideCount = Math.max(4, Math.min(24, Math.round(requestedSlideCount ?? 8)))
-  const contentCount = slideCount - 3
-  const requestThemes = inferThemes(request, Math.min(5, contentCount))
-  const slides: PresentationSlide[] = [
-    {
-      id: createId(),
-      kind: 'cover',
-      layout: 'statement',
-      title,
-      subtitle: `${audience} · ${objective}`,
-      bullets: [],
-      speakerNotes: request,
-      sources: []
-    },
-    {
-      id: createId(),
-      kind: 'agenda',
-      layout: 'title-body',
-      title: '目录与叙事路径',
-      subtitle: '从背景证据到判断，再到行动',
-      bullets: requestThemes.slice(0, 4),
-      speakerNotes: '',
-      sources: []
-    },
-    ...Array.from({ length: contentCount }, (_, index): PresentationSlide => {
-      const theme = requestThemes[index % requestThemes.length] ?? `核心主题 ${index + 1}`
-      return {
-        id: createId(),
-        kind: 'content',
-        layout: index % 3 === 2 ? 'two-column' : 'title-body',
-        title: theme,
-        subtitle: '本页需要形成一个可验证的单一结论',
-        bullets: [
-          `关键事实：补充与“${theme}”直接相关的证据`,
-          '核心判断：说明事实意味着什么',
-          '行动建议：给出负责人、时点或下一步'
-        ],
-        speakerNotes: '',
-        sources: []
-      }
-    }),
-    {
-      id: createId(),
-      kind: 'closing',
-      layout: 'statement',
-      title: '结论与下一步',
-      subtitle: objective,
-      bullets: ['复述核心判断', '明确下一步行动', '记录仍待验证的问题'],
-      speakerNotes: '',
-      sources: []
-    }
-  ]
+  const request = normalizedText(input.request, 2_000)
   return {
     id: createId(),
-    title,
+    title: outline.title,
     request,
-    audience,
-    objective,
+    audience: outline.audience,
+    objective: outline.objective,
     styleId: input.styleId ?? 'porcelain',
-    currentStage: 'brief',
-    slides,
+    currentStage: 'outline',
+    slides: slidesFromGeneratedOutline(outline, createId),
+    sourceDocument: outline.sourceDocument,
+    analysis: {
+      provider: 'codex-cli',
+      runtimeVersion: outline.runtimeVersion,
+      narrative: outline.narrative,
+      status: 'ready',
+      generatedAt: now
+    },
     createdAt: now,
+    updatedAt: now
+  }
+}
+
+export function replacePresentationProjectOutline(
+  project: PresentationProject,
+  outline: PresentationOutlineGenerationResult,
+  options: { now?: string; id?: () => string } = {}
+): PresentationProject {
+  const now = options.now ?? new Date().toISOString()
+  const createId = options.id ?? (() => crypto.randomUUID())
+  return {
+    ...project,
+    title: outline.title,
+    audience: outline.audience,
+    objective: outline.objective,
+    currentStage: 'outline',
+    slides: slidesFromGeneratedOutline(outline, createId),
+    sourceDocument: outline.sourceDocument,
+    analysis: {
+      provider: 'codex-cli',
+      runtimeVersion: outline.runtimeVersion,
+      narrative: outline.narrative,
+      status: 'ready',
+      generatedAt: now
+    },
     updatedAt: now
   }
 }
@@ -259,6 +246,10 @@ function isPresentationProject(value: unknown): value is PresentationProject {
     && value.slides.length >= 1
     && value.slides.length <= PRESENTATION_PROJECT_MAX_SLIDES
     && value.slides.every(isPresentationSlide)
+    && (value.sourceDocument === undefined
+      || value.sourceDocument === null
+      || isPresentationSourceDocument(value.sourceDocument))
+    && (value.analysis === undefined || value.analysis === null || isPresentationAnalysis(value.analysis))
     && isIsoDate(value.createdAt)
     && isIsoDate(value.updatedAt)
 }
@@ -291,32 +282,57 @@ function isPresentationSource(value: unknown): value is PresentationSource {
     && value.note.length <= 2_000
 }
 
-function inferPresentationTitle(request: string): string {
-  const firstLine = request.split(/[\r\n。！？]/)[0]?.trim() ?? ''
-  return (firstLine || '新建演示文稿').replace(/^(请|帮我|生成|制作|创建)\s*/, '').slice(0, 120)
-}
-
-function inferThemes(request: string, count: number): string[] {
-  const candidates = request
-    .split(/[，,；;。！？!?：:\r\n]+/)
-    .map((item) => item.trim().replace(/^(请|并|以及|需要|希望)\s*/, ''))
-    .filter((item) => item.length >= 2 && item.length <= 32)
-  const defaults = ['背景与机会', '现状与证据', '核心方案', '实施路径', '风险与衡量']
-  return [...new Set([...candidates, ...defaults])].slice(0, Math.max(1, count))
-}
-
 function normalizedText(value: string | undefined, limit: number): string {
   return value?.trim().slice(0, limit) ?? ''
 }
 
-function normalizedRequiredText(value: string, limit: number, message: string): string {
-  const normalized = normalizedText(value, limit)
-  if (!normalized) throw new Error(message)
-  return normalized
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function slidesFromGeneratedOutline(
+  outline: PresentationOutlineGenerationResult,
+  createId: () => string
+): PresentationSlide[] {
+  return outline.slides.map((slide, index) => ({
+    id: createId(),
+    kind: slide.kind,
+    layout: slide.kind === 'cover' || slide.kind === 'closing'
+      ? 'statement'
+      : index % 3 === 0
+        ? 'two-column'
+        : 'title-body',
+    title: slide.title,
+    subtitle: slide.subtitle,
+    bullets: [...slide.bullets],
+    speakerNotes: slide.speakerNotes,
+    sources: slide.evidence.map((evidence) => ({
+      id: createId(),
+      title: evidence.sourceTitle,
+      url: '',
+      note: evidence.excerpt
+    }))
+  }))
+}
+
+function isPresentationSourceDocument(value: unknown): value is PresentationSourceDocument {
+  if (!isRecord(value)) return false
+  return isBoundedString(value.path, 1, 4_000)
+    && isBoundedString(value.name, 1, 260)
+    && ['docx', 'markdown', 'text'].includes(String(value.kind))
+    && Number.isInteger(value.byteSize) && Number(value.byteSize) > 0
+    && Number.isInteger(value.characterCount) && Number(value.characterCount) > 0
+    && isBoundedString(value.preview, 0, 700)
+    && typeof value.truncated === 'boolean'
+}
+
+function isPresentationAnalysis(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return value.provider === 'codex-cli'
+    && (value.runtimeVersion === null || isBoundedString(value.runtimeVersion, 1, 120))
+    && isBoundedString(value.narrative, 1, 500)
+    && ['ready', 'stale'].includes(String(value.status))
+    && isIsoDate(value.generatedAt)
 }
 
 function isBoundedString(value: unknown, min: number, max: number): value is string {
@@ -326,3 +342,7 @@ function isBoundedString(value: unknown, min: number, max: number): value is str
 function isIsoDate(value: unknown): value is string {
   return typeof value === 'string' && Number.isFinite(Date.parse(value))
 }
+import type {
+  PresentationOutlineGenerationResult,
+  PresentationSourceDocument
+} from '@contracts'

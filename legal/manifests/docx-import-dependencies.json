@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "scope": "additive-source-graph-for-docx-import",
+  "package_instances": 26,
+  "new_instances_since_full_javascript_freeze": 15,
+  "shared_instances_recorded_elsewhere": 11,
+  "shared_instance_record": "legal/manifests/javascript-source-dependencies.json",
+  "packages": [
+    {
+      "name": "mammoth",
+      "version": "1.12.2",
+      "classification": "direct",
+      "license": "BSD-2-Clause",
+      "lockfile_integrity": "sha512-MH2vkgafD/2MYUaEOtoXLKrHQZ7yLYTHGQgyLNtYZHiUxU1K1QQ+8qMFquDAfhBm06wSGSws3J+Q9QTsKtR44g==",
+      "license_files": ["legal/licenses/javascript/mammoth@1.12.2/LICENSE"]
+    },
+    {
+      "name": "argparse",
+      "version": "1.0.10",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg==",
+      "license_files": ["legal/licenses/javascript/argparse@1.0.10/LICENSE"]
+    },
+    {
+      "name": "sprintf-js",
+      "version": "1.0.3",
+      "classification": "transitive",
+      "license": "BSD-3-Clause",
+      "lockfile_integrity": "sha512-D9cPgkvLlV3t3IzL0D0YLvGA9Ahk4PcvVwUbN0dSGr1aP0Nrt4AEnTUbuGvquEC0mA64Gqt1fzirlRs5ibXx8g==",
+      "license_files": ["legal/licenses/javascript/sprintf-js@1.0.3/LICENSE"]
+    },
+    {
+      "name": "bluebird",
+      "version": "3.4.7",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-iD3898SR7sWVRHbiQv+sHUtHnMvC1o3nW5rAcqnq3uOn07DSAppZYUkIGslDz6gXC7HfunPe7YVBgoEJASPcHA==",
+      "license_files": ["legal/licenses/javascript/bluebird@3.4.7/LICENSE"]
+    },
+    {
+      "name": "dingbat-to-unicode",
+      "version": "1.0.1",
+      "classification": "transitive",
+      "license": "BSD-2-Clause",
+      "lockfile_integrity": "sha512-98l0sW87ZT58pU4i61wa2OHwxbiYSbuxsCBozaVnYX2iCnr3bLM3fIes1/ej7h1YdOKuKt/MLs706TVnALA65w==",
+      "license_files": [],
+      "metadata_notice": "legal/licenses/javascript/dingbat-to-unicode@1.0.1/package.json"
+    },
+    {
+      "name": "jszip",
+      "version": "3.10.1",
+      "classification": "transitive",
+      "license": "(MIT OR GPL-3.0-or-later)",
+      "lockfile_integrity": "sha512-xXDvecyTpGLrqFrvkrUSoxxfJI5AH7U8zxxtVclpsUtMCq4JQ290LY8AW5c7Ggnr/Y/oK+bQMbqK2qmtk3pN4g==",
+      "license_files": ["legal/licenses/javascript/jszip@3.10.1/LICENSE.markdown"]
+    },
+    {
+      "name": "lie",
+      "version": "3.3.0",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-UaiMJzeWRlEujzAuw5LokY1L5ecNQYZKfmyZ9L7wDHb/p5etKaxXhohBcrw0EYby+G/NA52vRSN4N39dxHAIwQ==",
+      "license_files": ["legal/licenses/javascript/lie@3.3.0/license.md"]
+    },
+    {
+      "name": "immediate",
+      "version": "3.0.6",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-XXOFtyqDjNDAQxVfYxuF7g9Il/IbWmmlQg2MYKOH8ExIT1qg6xc4zyS3HaEEATgs1btfzxq15ciUiY7gjSXRGQ==",
+      "license_files": ["legal/licenses/javascript/immediate@3.0.6/LICENSE.txt"]
+    },
+    {
+      "name": "pako",
+      "version": "1.0.11",
+      "classification": "transitive",
+      "license": "(MIT AND Zlib)",
+      "lockfile_integrity": "sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==",
+      "license_files": ["legal/licenses/javascript/pako@1.0.11/LICENSE"]
+    },
+    {
+      "name": "setimmediate",
+      "version": "1.0.5",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-MATJdZp8sLqDl/68LfQmbP8zKPLQNV6BIZoIgrscFDQ+RsvK/BxeDQOgyxKKoh0y/8h3BqVFnCqQ/gd+reiIXA==",
+      "license_files": ["legal/licenses/javascript/setimmediate@1.0.5/LICENSE.txt"]
+    },
+    {
+      "name": "lop",
+      "version": "0.4.2",
+      "classification": "transitive",
+      "license": "BSD-2-Clause",
+      "lockfile_integrity": "sha512-RefILVDQ4DKoRZsJ4Pj22TxE3omDO47yFpkIBoDKzkqPRISs5U1cnAdg/5583YPkWPaLIYHOKRMQSvjFsO26cw==",
+      "license_files": ["legal/licenses/javascript/lop@0.4.2/LICENSE"]
+    },
+    {
+      "name": "duck",
+      "version": "0.1.12",
+      "classification": "transitive",
+      "license": "BSD",
+      "lockfile_integrity": "sha512-wkctla1O6VfP89gQ+J/yDesM0S7B7XLXjKGzXxMDVFg7uEn706niAtyYovKbyq1oT9YwDcly721/iUWoc8MVRg==",
+      "license_files": ["legal/licenses/javascript/duck@0.1.12/LICENSE"]
+    },
+    {
+      "name": "underscore",
+      "version": "1.13.8",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-DXtD3ZtEQzc7M8m4cXotyHR+FAS18C64asBYY5vqZexfYryNNnDc02W4hKg3rdQuqOYas1jkseX0+nZXjTXnvQ==",
+      "license_files": ["legal/licenses/javascript/underscore@1.13.8/LICENSE"]
+    },
+    {
+      "name": "option",
+      "version": "0.2.4",
+      "classification": "transitive",
+      "license": "BSD-2-Clause",
+      "lockfile_integrity": "sha512-pkEqbDyl8ou5cpq+VsnQbe/WlEy5qS7xPzMS1U55OCG9KPvwFD46zDbxQIj3egJSFc3D+XhYOPUzz49zQAVy7A==",
+      "license_files": ["legal/licenses/javascript/option@0.2.4/LICENSE"]
+    },
+    {
+      "name": "xmlbuilder",
+      "version": "10.1.1",
+      "classification": "transitive",
+      "license": "MIT",
+      "lockfile_integrity": "sha512-OyzrcFLL/nb6fMGHbiRDuPup9ljBycsdCypwuyg5AAHvyWzGfChJpCXMG88AGTIMFhGZ9RccFN1e6lhg3hkwKg==",
+      "license_files": ["legal/licenses/javascript/xmlbuilder@10.1.1/LICENSE"]
+    }
+  ]
+}

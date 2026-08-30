@@ -14,6 +14,11 @@ freeze. Its package license files are retained beside the existing JavaScript
 records. The full source and binary manifests must be regenerated before the
 next packaged release.
 
+`manifests/docx-import-dependencies.json` records the 26-package Mammoth DOCX
+import graph, including the 15 package instances not present in the last full
+JavaScript source freeze. Exact available license files and the one upstream
+package metadata-only notice are retained under `licenses/javascript/`.
+
 For the MPL-covered `option-ext 0.2.0` component, the relevant repository paths
 are:
 

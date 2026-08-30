@@ -19,6 +19,7 @@ import {
   persistPresentationLibrary,
   presentationStageProgress,
   readPresentationLibrary,
+  replacePresentationProjectOutline,
   reorderPresentationSlide,
   type PresentationLibrary,
   type PresentationProject,
@@ -28,6 +29,7 @@ import {
   type PresentationStage,
   type PresentationStyleId
 } from './presentation-workbench-model'
+import type { PresentationSourceDocument } from '@contracts'
 
 type ProjectDraft = {
   request: string
@@ -36,6 +38,7 @@ type ProjectDraft = {
   objective: string
   slideCount: number
   styleId: PresentationStyleId
+  sourceDocument: PresentationSourceDocument | null
 }
 
 const INITIAL_PROJECT_DRAFT: ProjectDraft = {
@@ -44,7 +47,8 @@ const INITIAL_PROJECT_DRAFT: ProjectDraft = {
   audience: '',
   objective: '',
   slideCount: 8,
-  styleId: 'porcelain'
+  styleId: 'porcelain',
+  sourceDocument: null
 }
 
 interface PresentationWorkbenchProps {
@@ -62,6 +66,8 @@ export function PresentationWorkbench({
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null)
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(INITIAL_PROJECT_DRAFT)
   const [creating, setCreating] = useState(false)
+  const [selectingSource, setSelectingSource] = useState(false)
+  const [analyzingProject, setAnalyzingProject] = useState(false)
   const [sourceDraft, setSourceDraft] = useState({ title: '', url: '', note: '' })
   const [exporting, setExporting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -121,23 +127,58 @@ export function PresentationWorkbench({
     }))
   }, [selectedSlideId, updateActiveProject])
 
-  const createProject = (event: FormEvent): void => {
+  const selectSourceDocument = async (): Promise<void> => {
+    if (selectingSource) return
+    setSelectingSource(true)
+    setNotice(null)
+    try {
+      const sourceDocument = await window.rovai.presentations.selectSourceDocument()
+      if (!sourceDocument) return
+      setProjectDraft((current) => ({
+        ...current,
+        sourceDocument,
+        request: current.request.trim()
+          ? current.request
+          : `请根据所选资料“${sourceDocument.name}”生成一份结构清晰、证据可追溯的 PPT。`
+      }))
+    } catch (error) {
+      setNotice(error instanceof Error ? `资料读取失败：${error.message}` : '资料读取失败。')
+    } finally {
+      setSelectingSource(false)
+    }
+  }
+
+  const createProject = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
-    if (!projectDraft.request.trim()) return
+    if (!projectDraft.request.trim() && !projectDraft.sourceDocument) return
+    if (!projectDraft.sourceDocument && looksLikeDocumentPath(projectDraft.request)) {
+      setNotice('检测到文件路径，但工作台不会把路径当正文。请点击“选择资料”并读取该文件。')
+      return
+    }
     if (library.projects.length >= PRESENTATION_LIBRARY_MAX_PROJECTS) {
       setNotice(`项目库最多保存 ${PRESENTATION_LIBRARY_MAX_PROJECTS} 个项目，请先删除不再需要的项目。`)
       return
     }
     setCreating(true)
+    setNotice('正在读取资料并由 Codex 分析叙事结构，通常需要 1–5 分钟；首次运行时检测可能更久。')
     try {
-      const project = createPresentationProject(projectDraft)
+      const outline = await window.rovai.presentations.generateOutline({
+        request: projectDraft.request,
+        title: projectDraft.title,
+        audience: projectDraft.audience,
+        objective: projectDraft.objective,
+        slideCount: projectDraft.slideCount,
+        styleId: projectDraft.styleId,
+        sourcePath: projectDraft.sourceDocument?.path ?? null
+      })
+      const project = createPresentationProject(projectDraft, outline)
       setLibrary((current) => ({ ...current, projects: [project, ...current.projects] }))
       setActiveProjectId(project.id)
       setSelectedSlideId(project.slides[0]?.id ?? null)
       setProjectDraft(INITIAL_PROJECT_DRAFT)
-      setNotice('已建立需求单和首版页面大纲。')
+      setNotice(`已读取${outline.sourceDocument ? `“${outline.sourceDocument.name}”并` : ''}生成 ${outline.slides.length} 页大纲。`)
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '无法创建 PPT 项目。')
+      setNotice(error instanceof Error ? `大纲分析失败：${error.message}` : '大纲分析失败。')
     } finally {
       setCreating(false)
     }
@@ -225,15 +266,43 @@ export function PresentationWorkbench({
     }
   }
 
+  const regenerateActiveOutline = async (): Promise<void> => {
+    if (!activeProject || analyzingProject) return
+    if (typeof window !== 'undefined' && !window.confirm('重新分析会替换当前全部页面、备注和逐页资料。是否继续？')) return
+    setAnalyzingProject(true)
+    setNotice('正在根据最新需求重新分析大纲。')
+    try {
+      const outline = await window.rovai.presentations.generateOutline({
+        request: activeProject.request,
+        title: activeProject.title,
+        audience: activeProject.audience,
+        objective: activeProject.objective,
+        slideCount: activeProject.slides.length,
+        styleId: activeProject.styleId,
+        sourcePath: activeProject.sourceDocument?.path ?? null
+      })
+      const nextProject = replacePresentationProjectOutline(activeProject, outline)
+      updateProject(activeProject.id, () => nextProject)
+      setSelectedSlideId(nextProject.slides[0]?.id ?? null)
+      setNotice(`大纲已重新生成，共 ${nextProject.slides.length} 页。`)
+    } catch (error) {
+      setNotice(error instanceof Error ? `重新分析失败：${error.message}` : '重新分析失败。')
+    } finally {
+      setAnalyzingProject(false)
+    }
+  }
+
   if (!activeProject) {
     return (
       <PresentationLibraryView
         library={library}
         draft={projectDraft}
         creating={creating}
+        selectingSource={selectingSource}
         notice={notice}
         onDraftChange={setProjectDraft}
         onCreate={createProject}
+        onSelectSource={() => void selectSourceDocument()}
         onOpen={(project) => {
           setActiveProjectId(project.id)
           setSelectedSlideId(project.slides[0]?.id ?? null)
@@ -282,7 +351,13 @@ export function PresentationWorkbench({
             className={stage.id === currentStage ? 'active' : ''}
             type="button"
             aria-current={stage.id === currentStage ? 'step' : undefined}
-            onClick={() => updateActiveProject((project) => ({ ...project, currentStage: stage.id }))}
+            onClick={() => {
+              if (stage.id === 'outline' && activeProject.analysis?.status === 'stale') {
+                void regenerateActiveOutline()
+                return
+              }
+              updateActiveProject((project) => ({ ...project, currentStage: stage.id }))
+            }}
           >
             <span>{String(index + 1).padStart(2, '0')}</span>
             <strong>{stage.label}</strong>
@@ -335,8 +410,23 @@ export function PresentationWorkbench({
                   <span>{stageHandoffCopy(currentStage)}</span>
                 </div>
                 {nextStage && (
-                  <button className="primary-button" type="button" onClick={() => updateActiveProject((project) => ({ ...project, currentStage: nextStage }))}>
-                    进入{stageLabel(nextStage)}
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={analyzingProject}
+                    onClick={() => {
+                      if (currentStage === 'brief' && activeProject.analysis?.status === 'stale') {
+                        void regenerateActiveOutline()
+                        return
+                      }
+                      updateActiveProject((project) => ({ ...project, currentStage: nextStage }))
+                    }}
+                  >
+                    {analyzingProject
+                      ? '正在分析…'
+                      : currentStage === 'brief' && activeProject.analysis?.status === 'stale'
+                        ? '重新分析大纲'
+                        : `进入${stageLabel(nextStage)}`}
                   </button>
                 )}
               </div>
@@ -351,11 +441,19 @@ export function PresentationWorkbench({
               slide={selectedSlide}
               stage={currentStage}
               sourceDraft={sourceDraft}
-              onProjectChange={(patch) => updateActiveProject((project) => ({ ...project, ...patch }))}
+              onProjectChange={(patch) => updateActiveProject((project) => ({
+                ...project,
+                ...patch,
+                analysis: currentStage === 'brief' && project.analysis
+                  ? { ...project.analysis, status: 'stale' }
+                  : project.analysis
+              }))}
               onSlideChange={updateSelectedSlide}
               onSourceDraftChange={setSourceDraft}
               onAddSource={addSource}
               onRemoveSource={removeSource}
+              onRegenerate={() => void regenerateActiveOutline()}
+              analyzing={analyzingProject}
             />
           )}
         </aside>
@@ -377,9 +475,11 @@ function PresentationLibraryView({
   library,
   draft,
   creating,
+  selectingSource,
   notice,
   onDraftChange,
   onCreate,
+  onSelectSource,
   onOpen,
   onDelete,
   onReset
@@ -387,9 +487,11 @@ function PresentationLibraryView({
   library: PresentationLibrary
   draft: ProjectDraft
   creating: boolean
+  selectingSource: boolean
   notice: string | null
   onDraftChange(draft: ProjectDraft): void
   onCreate(event: FormEvent): void
+  onSelectSource(): void
   onOpen(project: PresentationProject): void
   onDelete(projectId: string): void
   onReset(): void
@@ -412,6 +514,21 @@ function PresentationLibraryView({
             placeholder="例如：为管理层制作一份 AI 客服改造方案，说明现状、目标架构、投入产出和三个月实施计划。"
             onChange={(event) => onDraftChange({ ...draft, request: event.target.value })}
           />
+          <div className="presentation-source-picker">
+            <button className="quiet-button" type="button" onClick={onSelectSource} disabled={selectingSource || creating}>
+              {selectingSource ? '正在读取…' : draft.sourceDocument ? '更换资料' : '选择资料'}
+            </button>
+            {draft.sourceDocument
+              ? (
+                <article>
+                  <strong>{draft.sourceDocument.name}</strong>
+                  <span>{formatFileSize(draft.sourceDocument.byteSize)} · 已提取 {draft.sourceDocument.characterCount.toLocaleString('zh-CN')} 字符{draft.sourceDocument.truncated ? ' · 已按上下文上限截取' : ''}</span>
+                  <p>{draft.sourceDocument.preview}</p>
+                  <button type="button" className="text-button" onClick={() => onDraftChange({ ...draft, sourceDocument: null })}>移除资料</button>
+                </article>
+              )
+              : <span>支持 DOCX、Markdown 和 TXT；文件路径不会再被当成正文。</span>}
+          </div>
         </div>
         <div className="presentation-create-fields">
           <label>标题（可选）<input value={draft.title} maxLength={120} onChange={(event) => onDraftChange({ ...draft, title: event.target.value })} /></label>
@@ -421,8 +538,8 @@ function PresentationLibraryView({
           <label>视觉预设<select value={draft.styleId} onChange={(event) => onDraftChange({ ...draft, styleId: event.target.value as PresentationStyleId })}>{PRESENTATION_STYLES.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}</select></label>
         </div>
         <div className="presentation-create-footer">
-          <span>项目保存在本机；不会自动发送消息或调用外部模型。</span>
-          <button className="primary-button" type="submit" disabled={creating || !draft.request.trim()}>{creating ? '正在建立…' : '建立 PPT 项目'}</button>
+          <span>资料在本机提取；点击生成后，正文会交给当前已登录的 Codex CLI 分析。</span>
+          <button className="primary-button" type="submit" disabled={creating || (!draft.request.trim() && !draft.sourceDocument)}>{creating ? '正在分析大纲…' : '分析资料并建立大纲'}</button>
         </div>
       </form>
       <section className="presentation-recent-projects" aria-labelledby="presentation-recent-heading">
@@ -431,7 +548,7 @@ function PresentationLibraryView({
           {library.projects.length > 0 && <button className="quiet-button compact" type="button" onClick={onReset}>清空项目库</button>}
         </div>
         {library.projects.length === 0
-          ? <div className="presentation-empty-state"><strong>还没有 PPT 项目</strong><span>上面的需求会生成一份可编辑首版大纲，而不是直接产出不可控的成品。</span></div>
+          ? <div className="presentation-empty-state"><strong>还没有 PPT 项目</strong><span>导入资料后，Codex 会先给出可编辑、可追溯的逐页大纲。</span></div>
           : <div className="presentation-project-grid">{library.projects.map((project) => (
             <article key={project.id} className="presentation-project-card">
               <button className="presentation-project-open" type="button" onClick={() => onOpen(project)}>
@@ -457,7 +574,9 @@ function PresentationStageInspector({
   onSlideChange,
   onSourceDraftChange,
   onAddSource,
-  onRemoveSource
+  onRemoveSource,
+  onRegenerate,
+  analyzing
 }: {
   project: PresentationProject
   slide: PresentationSlide
@@ -468,6 +587,8 @@ function PresentationStageInspector({
   onSourceDraftChange(draft: { title: string; url: string; note: string }): void
   onAddSource(event: FormEvent): void
   onRemoveSource(sourceId: string): void
+  onRegenerate(): void
+  analyzing: boolean
 }): React.JSX.Element {
   if (stage === 'brief') {
     return (
@@ -477,6 +598,23 @@ function PresentationStageInspector({
         <label>原始需求<textarea rows={7} value={project.request} maxLength={2_000} onChange={(event) => onProjectChange({ request: event.target.value })} /></label>
         <label>目标听众<input value={project.audience} maxLength={120} onChange={(event) => onProjectChange({ audience: event.target.value })} /></label>
         <label>期望行动<textarea rows={3} value={project.objective} maxLength={240} onChange={(event) => onProjectChange({ objective: event.target.value })} /></label>
+        {project.sourceDocument && (
+          <div className="presentation-analysis-card">
+            <span className="settings-page-eyebrow">SOURCE DOCUMENT</span>
+            <strong>{project.sourceDocument.name}</strong>
+            <p>已提取 {project.sourceDocument.characterCount.toLocaleString('zh-CN')} 字符{project.sourceDocument.truncated ? '，分析使用前 90,000 字符' : ''}</p>
+          </div>
+        )}
+        {project.analysis && (
+          <div className={`presentation-analysis-card is-${project.analysis.status}`}>
+            <span className="settings-page-eyebrow">叙事主线</span>
+            <p>{project.analysis.narrative}</p>
+            <small>{project.analysis.runtimeVersion ?? 'Codex CLI'} · {project.analysis.status === 'stale' ? '需求已修改，需要重新分析' : '大纲与当前需求一致'}</small>
+          </div>
+        )}
+        <button className="primary-button" type="button" onClick={onRegenerate} disabled={analyzing}>
+          {analyzing ? '正在重新分析…' : '重新分析并生成大纲'}
+        </button>
       </div>
     )
   }
@@ -510,6 +648,20 @@ function PresentationStageInspector({
         title={stage === 'outline' ? '页面结构' : stage === 'draft' ? '页面初稿' : '视觉设计'}
         detail={stage === 'outline' ? '每页只承担一个清晰结论。' : stage === 'draft' ? '编辑屏幕内容与演讲者备注。' : '选择版式和全局视觉预设。'}
       />
+      {stage === 'outline' && project.analysis && (
+        <div className="presentation-analysis-card presentation-outline-logic">
+          <span className="settings-page-eyebrow">分析逻辑</span>
+          <ol>
+            <li>先冻结听众、决策目标和非治疗边界</li>
+            <li>从资料中提取可核验事实与证据限制</li>
+            <li>按“问题与证据 → 判断 → 行动”组织正文</li>
+            <li>固定封面、目录、正文、收尾，并控制每页一个结论</li>
+          </ol>
+          <strong>本次叙事主线</strong>
+          <p>{project.analysis.narrative}</p>
+          <small>当前页带入 {slide.sources.length} 条原文证据；无法在原文中逐字匹配的摘录不会保存。</small>
+        </div>
+      )}
       {stage === 'design' && (
         <>
           <label>视觉预设<select value={project.styleId} onChange={(event) => onProjectChange({ styleId: event.target.value as PresentationStyleId })}>{PRESENTATION_STYLES.map((style) => <option key={style.id} value={style.id}>{style.label} · {style.description}</option>)}</select></label>
@@ -539,8 +691,13 @@ function SlideCanvas({ project, slide }: { project: PresentationProject; slide: 
   const columns = slide.layout === 'two-column'
     ? [slide.bullets.filter((_, index) => index % 2 === 0), slide.bullets.filter((_, index) => index % 2 === 1)]
     : [slide.bullets]
+  const titleDensity = slide.title.length > 72
+    ? 'is-title-very-long'
+    : slide.title.length > 42
+      ? 'is-title-long'
+      : ''
   return (
-    <article className={`presentation-slide-canvas is-${slide.layout}`} style={canvasStyle} aria-label={`页面预览：${slide.title}`}>
+    <article className={`presentation-slide-canvas is-${slide.layout} ${titleDensity}`} style={canvasStyle} aria-label={`页面预览：${slide.title}`}>
       <i className="presentation-slide-accent" />
       <div className="presentation-slide-content">
         <span className="presentation-slide-kicker">ROVAI PRESENTATION</span>
@@ -605,6 +762,16 @@ function formatUpdatedAt(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
+function formatFileSize(value: number): string {
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function looksLikeDocumentPath(value: string): boolean {
+  return /(?:[a-z]:\\|\\\\|\/)[^\r\n]+\.(?:docx|md|markdown|txt)\b/i.test(value)
 }
 
 function safeHttpUrl(value: string): string | null {

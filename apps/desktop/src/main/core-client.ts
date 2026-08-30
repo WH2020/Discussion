@@ -117,6 +117,14 @@ type CoreStartOptions = {
 const PLANNED_SHUTDOWN_DEADLINE_MS = 10_000
 const SHUTDOWN_SIGTERM_GRACE_MS = 3_000
 const SHUTDOWN_SIGKILL_GRACE_MS = 2_000
+const DEFAULT_CORE_REQUEST_TIMEOUT_MS = 60_000
+const PRESENTATION_OUTLINE_REQUEST_TIMEOUT_MS = 420_000
+
+export function coreRequestTimeout(method: CoreMethod): number {
+  return method === 'presentations.outline.generate'
+    ? PRESENTATION_OUTLINE_REQUEST_TIMEOUT_MS
+    : DEFAULT_CORE_REQUEST_TIMEOUT_MS
+}
 
 export class CoreClient {
   #child: ChildProcessWithoutNullStreams | null = null
@@ -238,7 +246,7 @@ export class CoreClient {
     const child = this.#child
     if (!child) throw new Error('Rust Core is unavailable')
 
-    return this.#sendRequest<T>(child, method, params, 60_000)
+    return this.#sendRequest<T>(child, method, params, coreRequestTimeout(method))
   }
 
   shutdown(): Promise<CoreShutdownResult> {

@@ -4,14 +4,15 @@ import { describe, expect, it } from 'vitest'
 import { PresentationWorkbench } from './PresentationWorkbench'
 
 describe('PresentationWorkbench', () => {
-  it('renders the independent PPT project library and honest local execution boundary', () => {
+  it('renders the document-backed Codex outline workflow', () => {
     const markup = renderToStaticMarkup(createElement(PresentationWorkbench, {
       initialLibrary: { schemaVersion: 1, projects: [] }
     }))
 
     expect(markup).toContain('PPT WORKBENCH / PHASE 3')
-    expect(markup).toContain('建立 PPT 项目')
-    expect(markup).toContain('不会自动发送消息或调用外部模型')
+    expect(markup).toContain('选择资料')
+    expect(markup).toContain('分析资料并建立大纲')
+    expect(markup).toContain('当前已登录的 Codex CLI')
     expect(markup).toContain('最近项目')
   })
 })
