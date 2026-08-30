@@ -8,6 +8,15 @@ import {
 } from 'react'
 import { exportPresentationProject } from './presentation-export'
 import {
+  applyPresentationDesign,
+  auditPresentationProject,
+  extractPresentationMetrics,
+  markPresentationDesignStale,
+  presentationDesignInput,
+  safePresentationLayout,
+  splitPresentationBullets
+} from './presentation-design'
+import {
   PRESENTATION_LIBRARY_MAX_PROJECTS,
   PRESENTATION_PROJECT_MAX_SLIDES,
   PRESENTATION_SLIDE_MAX_SOURCES,
@@ -68,6 +77,7 @@ export function PresentationWorkbench({
   const [creating, setCreating] = useState(false)
   const [selectingSource, setSelectingSource] = useState(false)
   const [analyzingProject, setAnalyzingProject] = useState(false)
+  const [designingProject, setDesigningProject] = useState(false)
   const [sourceDraft, setSourceDraft] = useState({ title: '', url: '', note: '' })
   const [exporting, setExporting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -119,12 +129,16 @@ export function PresentationWorkbench({
 
   const updateSelectedSlide = useCallback((patch: Partial<PresentationSlide>): void => {
     if (!selectedSlideId) return
-    updateActiveProject((project) => ({
-      ...project,
-      slides: project.slides.map((slide) => slide.id === selectedSlideId
-        ? { ...slide, ...patch }
-        : slide)
-    }))
+    updateActiveProject((project) => {
+      const updated = {
+        ...project,
+        slides: project.slides.map((slide) => slide.id === selectedSlideId
+          ? { ...slide, ...patch }
+          : slide)
+      }
+      const manualDesignOnly = Object.keys(patch).every((key) => key === 'layout' || key === 'designRationale')
+      return manualDesignOnly ? updated : markPresentationDesignStale(updated)
+    })
   }, [selectedSlideId, updateActiveProject])
 
   const selectSourceDocument = async (): Promise<void> => {
@@ -208,9 +222,10 @@ export function PresentationWorkbench({
       subtitle: '为本页写下一个单一结论',
       bullets: ['关键事实', '核心判断', '下一步行动'],
       speakerNotes: '',
-      sources: []
+      sources: [],
+      designRationale: ''
     }
-    updateActiveProject((project) => ({ ...project, slides: [...project.slides, slide] }))
+    updateActiveProject((project) => markPresentationDesignStale({ ...project, slides: [...project.slides, slide] }))
     setSelectedSlideId(slide.id)
   }
 
@@ -218,13 +233,13 @@ export function PresentationWorkbench({
     if (!activeProject || !selectedSlide || activeProject.slides.length <= 1) return
     const index = activeProject.slides.findIndex((slide) => slide.id === selectedSlide.id)
     const nextSlides = activeProject.slides.filter((slide) => slide.id !== selectedSlide.id)
-    updateActiveProject((project) => ({ ...project, slides: nextSlides }))
+    updateActiveProject((project) => markPresentationDesignStale({ ...project, slides: nextSlides }))
     setSelectedSlideId(nextSlides[Math.min(index, nextSlides.length - 1)]?.id ?? null)
   }
 
   const moveSlide = (direction: -1 | 1): void => {
     if (!selectedSlide) return
-    updateActiveProject((project) => ({
+    updateActiveProject((project) => markPresentationDesignStale({
       ...project,
       slides: reorderPresentationSlide(project.slides, selectedSlide.id, direction)
     }))
@@ -252,16 +267,48 @@ export function PresentationWorkbench({
     updateSelectedSlide({ sources: selectedSlide.sources.filter((source) => source.id !== sourceId) })
   }
 
+  const generateActiveDesign = async (): Promise<PresentationProject | null> => {
+    if (!activeProject || designingProject) return null
+    setDesigningProject(true)
+    setNotice('正在由 Codex 分析每页的信息类型、证据密度和页面节奏，生成逐页设计。')
+    try {
+      const result = await window.rovai.presentations.generateDesign(presentationDesignInput(activeProject))
+      const designed = applyPresentationDesign(activeProject, result)
+      updateProject(activeProject.id, () => designed)
+      const warningCount = designed.designAnalysis?.warnings.length ?? 0
+      setNotice(warningCount > 0
+        ? `逐页设计已生成；质检发现 ${warningCount} 项可改进提示，可在设计面板查看。`
+        : '逐页设计已生成，页面结构质检通过。')
+      return designed
+    } catch (error) {
+      setNotice(error instanceof Error ? `设计生成失败：${error.message}` : '设计生成失败。')
+      return null
+    } finally {
+      setDesigningProject(false)
+    }
+  }
+
   const exportProject = async (): Promise<void> => {
-    if (!activeProject || exporting) return
+    if (!activeProject || exporting || designingProject) return
     setExporting(true)
     setNotice(null)
     try {
-      const fileName = await exportPresentationProject(activeProject)
+      let exportable = activeProject
+      if (!activeProject.designAnalysis || activeProject.designAnalysis.status === 'stale') {
+        setDesigningProject(true)
+        setNotice('导出前正在补齐逐页设计，并执行页面结构质检。')
+        const result = await window.rovai.presentations.generateDesign(presentationDesignInput(activeProject))
+        exportable = applyPresentationDesign(activeProject, result)
+        updateProject(activeProject.id, () => exportable)
+      }
+      const audit = auditPresentationProject(exportable)
+      if (audit.errors.length > 0) throw new Error(audit.errors.join('；'))
+      const fileName = await exportPresentationProject(exportable)
       setNotice(`已导出 ${fileName}`)
     } catch (error) {
       setNotice(error instanceof Error ? `导出失败：${error.message}` : 'PPTX 导出失败。')
     } finally {
+      setDesigningProject(false)
       setExporting(false)
     }
   }
@@ -338,8 +385,8 @@ export function PresentationWorkbench({
             setPresentationIndex(Math.max(0, selectedIndex))
             setPresenting(true)
           }}>放映</button>
-          <button className="primary-button" type="button" onClick={() => void exportProject()} disabled={exporting}>
-            {exporting ? '正在导出…' : '导出 PPTX'}
+          <button className="primary-button" type="button" onClick={() => void exportProject()} disabled={exporting || designingProject}>
+            {exporting ? '正在设计与导出…' : designingProject ? '正在生成设计…' : '导出 PPTX'}
           </button>
         </div>
       </header>
@@ -354,6 +401,11 @@ export function PresentationWorkbench({
             onClick={() => {
               if (stage.id === 'outline' && activeProject.analysis?.status === 'stale') {
                 void regenerateActiveOutline()
+                return
+              }
+              if (stage.id === 'design'
+                && (!activeProject.designAnalysis || activeProject.designAnalysis.status === 'stale')) {
+                void generateActiveDesign()
                 return
               }
               updateActiveProject((project) => ({ ...project, currentStage: stage.id }))
@@ -413,10 +465,15 @@ export function PresentationWorkbench({
                   <button
                     className="primary-button"
                     type="button"
-                    disabled={analyzingProject}
+                    disabled={analyzingProject || designingProject}
                     onClick={() => {
                       if (currentStage === 'brief' && activeProject.analysis?.status === 'stale') {
                         void regenerateActiveOutline()
+                        return
+                      }
+                      if (nextStage === 'design'
+                        && (!activeProject.designAnalysis || activeProject.designAnalysis.status === 'stale')) {
+                        void generateActiveDesign()
                         return
                       }
                       updateActiveProject((project) => ({ ...project, currentStage: nextStage }))
@@ -424,6 +481,8 @@ export function PresentationWorkbench({
                   >
                     {analyzingProject
                       ? '正在分析…'
+                      : designingProject
+                        ? '正在生成设计…'
                       : currentStage === 'brief' && activeProject.analysis?.status === 'stale'
                         ? '重新分析大纲'
                         : `进入${stageLabel(nextStage)}`}
@@ -441,19 +500,26 @@ export function PresentationWorkbench({
               slide={selectedSlide}
               stage={currentStage}
               sourceDraft={sourceDraft}
-              onProjectChange={(patch) => updateActiveProject((project) => ({
-                ...project,
-                ...patch,
-                analysis: currentStage === 'brief' && project.analysis
-                  ? { ...project.analysis, status: 'stale' }
-                  : project.analysis
-              }))}
+              onProjectChange={(patch) => updateActiveProject((project) => {
+                const updated = { ...project, ...patch }
+                const designAware = Object.keys(patch).every((key) => key === 'styleId')
+                  ? updated
+                  : markPresentationDesignStale(updated)
+                return {
+                  ...designAware,
+                  analysis: currentStage === 'brief' && project.analysis
+                    ? { ...project.analysis, status: 'stale' }
+                    : project.analysis
+                }
+              })}
               onSlideChange={updateSelectedSlide}
               onSourceDraftChange={setSourceDraft}
               onAddSource={addSource}
               onRemoveSource={removeSource}
               onRegenerate={() => void regenerateActiveOutline()}
+              onGenerateDesign={() => void generateActiveDesign()}
               analyzing={analyzingProject}
+              designing={designingProject}
             />
           )}
         </aside>
@@ -576,7 +642,9 @@ function PresentationStageInspector({
   onAddSource,
   onRemoveSource,
   onRegenerate,
-  analyzing
+  onGenerateDesign,
+  analyzing,
+  designing
 }: {
   project: PresentationProject
   slide: PresentationSlide
@@ -588,8 +656,11 @@ function PresentationStageInspector({
   onAddSource(event: FormEvent): void
   onRemoveSource(sourceId: string): void
   onRegenerate(): void
+  onGenerateDesign(): void
   analyzing: boolean
+  designing: boolean
 }): React.JSX.Element {
+  const designAudit = auditPresentationProject(project)
   if (stage === 'brief') {
     return (
       <div className="presentation-inspector-form">
@@ -646,7 +717,7 @@ function PresentationStageInspector({
       <InspectorHeading
         stage={stage}
         title={stage === 'outline' ? '页面结构' : stage === 'draft' ? '页面初稿' : '视觉设计'}
-        detail={stage === 'outline' ? '每页只承担一个清晰结论。' : stage === 'draft' ? '编辑屏幕内容与演讲者备注。' : '选择版式和全局视觉预设。'}
+        detail={stage === 'outline' ? '每页只承担一个清晰结论。' : stage === 'draft' ? '编辑屏幕内容与演讲者备注。' : 'Codex 先选择逐页构图，再由可编辑元素完成导出。'}
       />
       {stage === 'outline' && project.analysis && (
         <div className="presentation-analysis-card presentation-outline-logic">
@@ -664,8 +735,18 @@ function PresentationStageInspector({
       )}
       {stage === 'design' && (
         <>
+          <div className={`presentation-analysis-card is-${project.designAnalysis?.status ?? 'stale'}`}>
+            <span className="settings-page-eyebrow">逐页设计状态</span>
+            <strong>{project.designAnalysis?.status === 'ready' ? '设计已生成' : '设计需要生成或更新'}</strong>
+            {slide.designRationale && <p>本页：{slide.designRationale}</p>}
+            <small>{project.designAnalysis?.runtimeVersion ?? 'Codex CLI'} · {designAudit.errors.length} 项阻断 · {designAudit.warnings.length} 项提示</small>
+            {designAudit.warnings.slice(0, 4).map((warning) => <p key={warning}>• {warning}</p>)}
+          </div>
+          <button className="primary-button" type="button" onClick={onGenerateDesign} disabled={designing}>
+            {designing ? '正在生成逐页设计…' : project.designAnalysis ? '重新生成逐页设计' : '生成逐页设计'}
+          </button>
           <label>视觉预设<select value={project.styleId} onChange={(event) => onProjectChange({ styleId: event.target.value as PresentationStyleId })}>{PRESENTATION_STYLES.map((style) => <option key={style.id} value={style.id}>{style.label} · {style.description}</option>)}</select></label>
-          <label>当前页版式<select value={slide.layout} onChange={(event) => onSlideChange({ layout: event.target.value as PresentationSlideLayout })}><option value="statement">大字结论</option><option value="title-body">标题正文</option><option value="two-column">双栏对照</option></select></label>
+          <label>当前页版式<select value={slide.layout} onChange={(event) => onSlideChange({ layout: event.target.value as PresentationSlideLayout, designRationale: '由用户手动调整版式。' })}><option value="statement">大字结论</option><option value="title-body">结论与支撑</option><option value="two-column">双栏并列</option><option value="metric">关键数字</option><option value="process">步骤与路径</option><option value="comparison">双面对照</option><option value="evidence">原文证据</option></select></label>
         </>
       )}
       <label>页面标题<input value={slide.title} maxLength={180} onChange={(event) => onSlideChange({ title: event.target.value })} /></label>
@@ -688,26 +769,62 @@ function SlideCanvas({ project, slide }: { project: PresentationProject; slide: 
     '--ppt-accent': style.accent,
     '--ppt-muted': style.muted
   } as CSSProperties
-  const columns = slide.layout === 'two-column'
-    ? [slide.bullets.filter((_, index) => index % 2 === 0), slide.bullets.filter((_, index) => index % 2 === 1)]
-    : [slide.bullets]
+  const layout = safePresentationLayout(slide)
   const titleDensity = slide.title.length > 72
     ? 'is-title-very-long'
     : slide.title.length > 42
       ? 'is-title-long'
       : ''
   return (
-    <article className={`presentation-slide-canvas is-${slide.layout} ${titleDensity}`} style={canvasStyle} aria-label={`页面预览：${slide.title}`}>
+    <article className={`presentation-slide-canvas is-${layout} is-${slide.kind} ${titleDensity}`} style={canvasStyle} aria-label={`页面预览：${slide.title}`}>
       <i className="presentation-slide-accent" />
       <div className="presentation-slide-content">
-        <span className="presentation-slide-kicker">ROVAI PRESENTATION</span>
+        <span className="presentation-slide-kicker">{slide.kind === 'cover' ? 'ROVAI / DECISION DECK' : slide.kind === 'closing' ? 'NEXT' : layoutKicker(layout)}</span>
         <h2>{slide.title || '未命名页面'}</h2>
         {slide.subtitle && <p>{slide.subtitle}</p>}
-        {slide.bullets.length > 0 && <div className="presentation-slide-bullets">{columns.map((items, columnIndex) => <ul key={columnIndex}>{items.map((bullet, index) => <li key={`${columnIndex}-${index}`}>{bullet}</li>)}</ul>)}</div>}
+        <SlideCanvasBody slide={slide} layout={layout} />
       </div>
       <footer><span>{project.title || '未命名演示'}</span><span>{project.slides.findIndex((item) => item.id === slide.id) + 1} / {project.slides.length}</span></footer>
     </article>
   )
+}
+
+function SlideCanvasBody({
+  slide,
+  layout
+}: {
+  slide: PresentationSlide
+  layout: PresentationSlideLayout
+}): React.JSX.Element | null {
+  if (slide.bullets.length === 0 && layout !== 'evidence') return null
+  if (layout === 'metric') {
+    return <div className="presentation-slide-metrics">{extractPresentationMetrics(slide).map((metric) => <div key={`${metric.value}-${metric.label}`}><strong>{metric.value}</strong><span>{metric.label}</span></div>)}</div>
+  }
+  if (layout === 'process') {
+    return <div className="presentation-slide-process">{slide.bullets.slice(0, 6).map((bullet, index) => <div key={`${index}-${bullet}`}><b>{index + 1}</b><span>{bullet}</span></div>)}</div>
+  }
+  if (layout === 'comparison' || layout === 'two-column') {
+    const columns = splitPresentationBullets(slide)
+    return <div className={`presentation-slide-columns is-${layout}`}>{columns.map((items, columnIndex) => <div key={columnIndex}><b>{String(columnIndex + 1).padStart(2, '0')}</b><ul>{items.map((bullet, index) => <li key={`${columnIndex}-${index}`}>{bullet}</li>)}</ul></div>)}</div>
+  }
+  if (layout === 'evidence') {
+    const source = slide.sources[0]
+    return <div className="presentation-slide-evidence"><div><strong>{slide.bullets[0] ?? slide.subtitle}</strong><ul>{slide.bullets.slice(1, 4).map((bullet) => <li key={bullet}>{bullet}</li>)}</ul></div><blockquote><span>“</span><p>{source?.note || '本页证据摘录待补。'}</p><cite>{source?.title || '待补来源'}</cite></blockquote></div>
+  }
+  if (layout === 'title-body') {
+    return <div className="presentation-slide-lead">{slide.bullets[0] && <strong>{slide.bullets[0]}</strong>}<ul>{slide.bullets.slice(1, 5).map((bullet) => <li key={bullet}>{bullet}</li>)}</ul></div>
+  }
+  return <div className="presentation-slide-bullets"><ul>{slide.bullets.slice(0, 4).map((bullet, index) => <li key={index}>{bullet}</li>)}</ul></div>
+}
+
+function layoutKicker(layout: PresentationSlideLayout): string {
+  if (layout === 'metric') return 'KEY NUMBERS'
+  if (layout === 'process') return 'SEQUENCE'
+  if (layout === 'comparison') return 'COMPARISON'
+  if (layout === 'evidence') return 'EVIDENCE'
+  if (layout === 'two-column') return 'TWO LENSES'
+  if (layout === 'statement') return 'CORE STATEMENT'
+  return 'INSIGHT'
 }
 
 function SlideMiniature({ project, slide }: { project: PresentationProject; slide: PresentationSlide }): React.JSX.Element {

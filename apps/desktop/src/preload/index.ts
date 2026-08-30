@@ -238,6 +238,9 @@ const api: RovaiApi = {
     },
     generateOutline(input) {
       return ipcRenderer.invoke('rovai:presentation-generate-outline', input)
+    },
+    generateDesign(input) {
+      return ipcRenderer.invoke('rovai:presentation-generate-design', input)
     }
   },
   selectWorkspaceDirectory() {

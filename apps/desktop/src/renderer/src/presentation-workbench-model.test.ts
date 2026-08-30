@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { PresentationOutlineGenerationResult } from '@contracts'
 import {
+  applyPresentationDesign,
+  auditPresentationProject,
+  extractPresentationMetrics,
+  markPresentationDesignStale,
+  presentationSourceNotes
+} from './presentation-design'
+import {
   PRESENTATION_LIBRARY_RECOVERY_KEY,
   PRESENTATION_LIBRARY_STORAGE_KEY,
   createPresentationProject,
@@ -62,6 +69,47 @@ function outlineFixture(slideCount = 6): PresentationOutlineGenerationResult {
 }
 
 describe('presentation workbench model', () => {
+  it('applies a page-level design pass and keeps source provenance in notes', () => {
+    const project = createPresentationProject(
+      { request: '市场机会判断', slideCount: 6 },
+      outlineFixture(),
+      { now: '2026-08-30T00:00:00.000Z', id: idFactory() }
+    )
+    const designed = applyPresentationDesign(project, {
+      runtimeVersion: 'codex-cli 0.151.0',
+      slides: [
+        { layout: 'statement', rationale: '封面保持单一焦点。' },
+        { layout: 'process', rationale: '目录表现叙事顺序。' },
+        { layout: 'evidence', rationale: '引用原文作为视觉锚点。' },
+        { layout: 'title-body', rationale: '用一个结论带出支撑事实。' },
+        { layout: 'two-column', rationale: '并列信息分栏呈现。' },
+        { layout: 'statement', rationale: '收尾聚焦行动。' }
+      ]
+    }, '2026-08-30T01:00:00.000Z')
+
+    expect(designed.currentStage).toBe('design')
+    expect(designed.designAnalysis).toMatchObject({ status: 'ready', provider: 'codex-cli' })
+    expect(designed.slides.map((slide) => slide.layout)).toEqual([
+      'statement', 'process', 'evidence', 'title-body', 'two-column', 'statement'
+    ])
+    expect(presentationSourceNotes(designed, designed.slides[2])).toContain('[Sources]')
+    expect(auditPresentationProject(designed).errors).toEqual([])
+    expect(markPresentationDesignStale(designed).designAnalysis?.status).toBe('stale')
+  })
+
+  it('extracts explicit metrics for a native key-number layout', () => {
+    const project = createPresentationProject(
+      { request: '市场机会判断', slideCount: 6 },
+      outlineFixture(),
+      { now: '2026-08-30T00:00:00.000Z', id: idFactory() }
+    )
+    const slide = {
+      ...project.slides[2],
+      bullets: ['目标市场规模约20亿元', '预计3年完成渠道验证', '用户满意度达到85%']
+    }
+    expect(extractPresentationMetrics(slide).map((metric) => metric.value)).toEqual(['约20亿元', '3年', '85%'])
+  })
+
   it('creates a Codex-authored project with page-local evidence pools', () => {
     const project = createPresentationProject({
       request: '为管理层制作 AI 客服改造方案，覆盖现状、目标架构、投入产出和实施计划。',

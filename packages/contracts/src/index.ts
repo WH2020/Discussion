@@ -2688,9 +2688,50 @@ export interface PresentationOutlineGenerationResult {
   slides: PresentationGeneratedSlide[]
 }
 
+export type PresentationDesignedLayout =
+  | 'statement'
+  | 'title-body'
+  | 'two-column'
+  | 'metric'
+  | 'process'
+  | 'comparison'
+  | 'evidence'
+
+export interface PresentationDesignSlideInput {
+  kind: 'cover' | 'agenda' | 'content' | 'closing'
+  title: string
+  subtitle: string
+  bullets: string[]
+  evidence: Array<{
+    sourceTitle: string
+    excerpt: string
+  }>
+}
+
+export interface PresentationDesignGenerationInput {
+  title: string
+  audience: string
+  objective: string
+  styleId: 'porcelain' | 'steel' | 'ember'
+  slides: PresentationDesignSlideInput[]
+}
+
+export interface PresentationDesignedSlide {
+  layout: PresentationDesignedLayout
+  rationale: string
+}
+
+export interface PresentationDesignGenerationResult {
+  runtimeVersion: string | null
+  slides: PresentationDesignedSlide[]
+}
+
 export interface PresentationApi {
   selectSourceDocument(): Promise<PresentationSourceDocument | null>
   generateOutline(
     input: PresentationOutlineGenerationInput
   ): Promise<PresentationOutlineGenerationResult>
+  generateDesign(
+    input: PresentationDesignGenerationInput
+  ): Promise<PresentationDesignGenerationResult>
 }

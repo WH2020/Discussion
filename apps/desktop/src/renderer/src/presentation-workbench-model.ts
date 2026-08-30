@@ -6,7 +6,14 @@ export const PRESENTATION_SLIDE_MAX_SOURCES = 30
 
 export type PresentationStage = 'brief' | 'outline' | 'research' | 'draft' | 'design'
 export type PresentationSlideKind = 'cover' | 'agenda' | 'content' | 'closing'
-export type PresentationSlideLayout = 'statement' | 'title-body' | 'two-column'
+export type PresentationSlideLayout =
+  | 'statement'
+  | 'title-body'
+  | 'two-column'
+  | 'metric'
+  | 'process'
+  | 'comparison'
+  | 'evidence'
 export type PresentationStyleId = 'porcelain' | 'steel' | 'ember'
 
 export interface PresentationSource {
@@ -25,6 +32,7 @@ export interface PresentationSlide {
   bullets: string[]
   speakerNotes: string
   sources: PresentationSource[]
+  designRationale?: string
 }
 
 export interface PresentationProject {
@@ -43,6 +51,13 @@ export interface PresentationProject {
     narrative: string
     status: 'ready' | 'stale'
     generatedAt: string
+  } | null
+  designAnalysis?: {
+    provider: 'codex-cli'
+    runtimeVersion: string | null
+    status: 'ready' | 'stale'
+    generatedAt: string
+    warnings: string[]
   } | null
   createdAt: string
   updatedAt: string
@@ -141,6 +156,7 @@ export function createPresentationProject(
       status: 'ready',
       generatedAt: now
     },
+    designAnalysis: null,
     createdAt: now,
     updatedAt: now
   }
@@ -168,6 +184,7 @@ export function replacePresentationProjectOutline(
       status: 'ready',
       generatedAt: now
     },
+    designAnalysis: null,
     updatedAt: now
   }
 }
@@ -250,6 +267,7 @@ function isPresentationProject(value: unknown): value is PresentationProject {
       || value.sourceDocument === null
       || isPresentationSourceDocument(value.sourceDocument))
     && (value.analysis === undefined || value.analysis === null || isPresentationAnalysis(value.analysis))
+    && (value.designAnalysis === undefined || value.designAnalysis === null || isPresentationDesignAnalysis(value.designAnalysis))
     && isIsoDate(value.createdAt)
     && isIsoDate(value.updatedAt)
 }
@@ -258,7 +276,7 @@ function isPresentationSlide(value: unknown): value is PresentationSlide {
   if (!isRecord(value)) return false
   return isBoundedString(value.id, 1, 120)
     && ['cover', 'agenda', 'content', 'closing'].includes(String(value.kind))
-    && ['statement', 'title-body', 'two-column'].includes(String(value.layout))
+    && ['statement', 'title-body', 'two-column', 'metric', 'process', 'comparison', 'evidence'].includes(String(value.layout))
     && isBoundedString(value.title, 0, 180)
     && typeof value.subtitle === 'string'
     && value.subtitle.length <= 300
@@ -270,6 +288,7 @@ function isPresentationSlide(value: unknown): value is PresentationSlide {
     && Array.isArray(value.sources)
     && value.sources.length <= PRESENTATION_SLIDE_MAX_SOURCES
     && value.sources.every(isPresentationSource)
+    && (value.designRationale === undefined || isBoundedString(value.designRationale, 0, 180))
 }
 
 function isPresentationSource(value: unknown): value is PresentationSource {
@@ -311,7 +330,8 @@ function slidesFromGeneratedOutline(
       title: evidence.sourceTitle,
       url: '',
       note: evidence.excerpt
-    }))
+    })),
+    designRationale: ''
   }))
 }
 
@@ -333,6 +353,17 @@ function isPresentationAnalysis(value: unknown): boolean {
     && isBoundedString(value.narrative, 1, 500)
     && ['ready', 'stale'].includes(String(value.status))
     && isIsoDate(value.generatedAt)
+}
+
+function isPresentationDesignAnalysis(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return value.provider === 'codex-cli'
+    && (value.runtimeVersion === null || isBoundedString(value.runtimeVersion, 1, 120))
+    && ['ready', 'stale'].includes(String(value.status))
+    && isIsoDate(value.generatedAt)
+    && Array.isArray(value.warnings)
+    && value.warnings.length <= PRESENTATION_PROJECT_MAX_SLIDES * 3
+    && value.warnings.every((warning) => isBoundedString(warning, 1, 300))
 }
 
 function isBoundedString(value: unknown, min: number, max: number): value is string {

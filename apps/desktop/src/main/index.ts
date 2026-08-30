@@ -567,6 +567,11 @@ ipcMain.handle('rovai:presentation-generate-outline', async (event, input: unkno
   return presentations.generateOutline(input)
 })
 
+ipcMain.handle('rovai:presentation-generate-design', async (event, input: unknown) => {
+  requireMainWindow(event.sender)
+  return presentations.generateDesign(input)
+})
+
 ipcMain.handle('rovai:appearance-get', () => appearanceSnapshot())
 
 ipcMain.handle('rovai:appearance-set', async (_event, preference: unknown) => {

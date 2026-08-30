@@ -4,9 +4,12 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   PresentationAgentService,
+  buildPresentationDesignPrompt,
   buildPresentationOutlinePrompt,
   extractPresentationSource,
+  normalizePresentationDesign,
   normalizePresentationOutline,
+  parsePresentationDesignGenerationInput,
   parsePresentationOutlineGenerationInput
 } from './presentation-agent'
 
@@ -17,6 +20,46 @@ afterEach(async () => {
 })
 
 describe('presentation agent boundary', () => {
+  it('runs a second managed Codex pass for page-level composition', async () => {
+    const calls: Array<{ method: string; params: unknown }> = []
+    const service = new PresentationAgentService({
+      request: async <T>(method: string, params?: unknown): Promise<T> => {
+        calls.push({ method, params })
+        return {
+          runtimeVersion: '0.144.6',
+          outline: {
+            slides: [
+              { layout: 'statement', rationale: '封面只保留一个主视觉焦点。' },
+              { layout: 'process', rationale: '目录按叙事顺序展开。' },
+              { layout: 'metric', rationale: '明确数字适合进行关键指标强调。' },
+              { layout: 'statement', rationale: '收尾页聚焦下一步行动。' }
+            ]
+          }
+        } as T
+      }
+    })
+    const result = await service.generateDesign({
+      title: '市场机会判断',
+      audience: '管理层',
+      objective: '确认下一步验证',
+      styleId: 'porcelain',
+      slides: [
+        { kind: 'cover', title: '市场机会判断', subtitle: '', bullets: [], evidence: [] },
+        { kind: 'agenda', title: '决策路径', subtitle: '', bullets: ['边界', '证据', '行动'], evidence: [] },
+        { kind: 'content', title: '目标市场保持增长', subtitle: '', bullets: ['市场规模约20亿元'], evidence: [] },
+        { kind: 'closing', title: '进入定位验证', subtitle: '', bullets: ['确认负责人'], evidence: [] }
+      ]
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.method).toBe('presentations.outline.generate')
+    expect(calls[0]?.params).toMatchObject({
+      prompt: expect.stringContaining('不得改写页面内容或补充事实'),
+      outputSchema: expect.objectContaining({ type: 'object' })
+    })
+    expect(result.slides[2]).toMatchObject({ layout: 'metric' })
+  })
+
   it('routes model generation through the Core managed Runtime boundary', async () => {
     const calls: Array<{ method: string; params: unknown }> = []
     const service = new PresentationAgentService({
@@ -96,6 +139,34 @@ describe('presentation agent boundary', () => {
       styleId: 'porcelain',
       sourcePath: null
     })).toThrow('4 到 24 页')
+  })
+
+  it('bounds design input and downgrades layouts that lack required evidence', () => {
+    const input = parsePresentationDesignGenerationInput({
+      title: '市场机会判断',
+      audience: '管理层',
+      objective: '确认下一步验证',
+      styleId: 'steel',
+      slides: [
+        { kind: 'cover', title: '市场机会判断', subtitle: '', bullets: [], evidence: [] },
+        { kind: 'agenda', title: '决策路径', subtitle: '', bullets: ['边界', '证据'], evidence: [] },
+        { kind: 'content', title: '需求信号明确', subtitle: '', bullets: ['用户重视便捷性'], evidence: [] },
+        { kind: 'closing', title: '进入验证', subtitle: '', bullets: ['确认负责人'], evidence: [] }
+      ]
+    })
+    const prompt = buildPresentationDesignPrompt(input)
+    expect(prompt).toContain('evidence 仅用于至少有一条证据摘录的页面')
+    const result = normalizePresentationDesign({
+      slides: [
+        { layout: 'title-body', rationale: '错误建议也会被封面约束修正。' },
+        { layout: 'two-column', rationale: '错误建议也会被目录约束修正。' },
+        { layout: 'evidence', rationale: '本页没有证据，应自动降级。' },
+        { layout: 'metric', rationale: '错误建议也会被收尾约束修正。' }
+      ]
+    }, input)
+    expect(result.slides.map((slide) => slide.layout)).toEqual([
+      'statement', 'process', 'title-body', 'statement'
+    ])
   })
 
   it('extracts and bounds local text without treating its content as instructions', async () => {

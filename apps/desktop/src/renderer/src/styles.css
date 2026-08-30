@@ -7379,8 +7379,8 @@ button.attachment-open:disabled { cursor: wait; opacity: .76; }
 }
 
 .presentation-slide-content {
-  align-self: center;
-  padding: 7% 8%;
+  align-self: stretch;
+  padding: 5.5% 6.4%;
 }
 
 .presentation-slide-kicker {
@@ -7393,7 +7393,7 @@ button.attachment-open:disabled { cursor: wait; opacity: .76; }
 .presentation-slide-content h2 {
   max-width: 92%;
   margin: 1.8% 0 0;
-  font-size: clamp(21px, 3vw, 44px);
+  font-size: clamp(20px, 2.65vw, 40px);
   font-weight: 650;
   line-height: 1.12;
   letter-spacing: -0.035em;
@@ -7403,7 +7403,7 @@ button.attachment-open:disabled { cursor: wait; opacity: .76; }
   max-width: 80%;
   margin: 2.2% 0 0;
   color: var(--ppt-muted);
-  font-size: clamp(9px, 1.15vw, 17px);
+  font-size: clamp(9px, 1.05vw, 16px);
 }
 
 .presentation-slide-bullets {
@@ -7430,7 +7430,217 @@ button.attachment-open:disabled { cursor: wait; opacity: .76; }
 
 .presentation-slide-canvas.is-statement .presentation-slide-content h2 {
   max-width: 88%;
-  font-size: clamp(26px, 4vw, 58px);
+  font-size: clamp(25px, 3.7vw, 54px);
+}
+
+.presentation-slide-canvas.is-statement .presentation-slide-content {
+  align-content: center;
+  display: grid;
+}
+
+.presentation-slide-canvas.is-cover .presentation-slide-accent {
+  right: 0;
+  left: auto;
+  width: 19%;
+}
+
+.presentation-slide-canvas.is-cover .presentation-slide-content {
+  width: 80%;
+  padding: 7% 6.4%;
+}
+
+.presentation-slide-canvas.is-cover .presentation-slide-kicker {
+  display: block;
+}
+
+.presentation-slide-canvas.is-cover .presentation-slide-content h2 {
+  max-width: 92%;
+  font-size: clamp(28px, 4.2vw, 62px);
+}
+
+.presentation-slide-canvas.is-closing .presentation-slide-accent {
+  width: 32%;
+}
+
+.presentation-slide-canvas.is-closing .presentation-slide-content {
+  margin-left: 32%;
+  padding-left: 6%;
+}
+
+.presentation-slide-lead {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.85fr);
+  gap: 7%;
+  margin-top: 5%;
+}
+
+.presentation-slide-lead > strong {
+  align-self: center;
+  font-size: clamp(14px, 1.75vw, 27px);
+  line-height: 1.35;
+}
+
+.presentation-slide-lead ul,
+.presentation-slide-columns ul,
+.presentation-slide-evidence ul {
+  display: grid;
+  gap: clamp(4px, 0.7vw, 10px);
+  margin: 0;
+  padding-left: 1.15em;
+  font-size: clamp(9px, 1.05vw, 16px);
+  line-height: 1.45;
+}
+
+.presentation-slide-lead li::marker,
+.presentation-slide-columns li::marker,
+.presentation-slide-evidence li::marker {
+  color: var(--ppt-accent);
+}
+
+.presentation-slide-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  margin-top: 7%;
+}
+
+.presentation-slide-metrics > div {
+  display: grid;
+  gap: 7px;
+  padding: 3% 7%;
+  border-left: 1px solid color-mix(in srgb, var(--ppt-muted) 35%, transparent);
+  text-align: center;
+}
+
+.presentation-slide-metrics > div:first-child {
+  border-left: 0;
+}
+
+.presentation-slide-metrics strong {
+  color: var(--ppt-accent);
+  font-size: clamp(24px, 3.6vw, 52px);
+  line-height: 1;
+}
+
+.presentation-slide-metrics span {
+  font-size: clamp(8px, 1vw, 15px);
+  line-height: 1.35;
+}
+
+.presentation-slide-process {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 2%;
+  margin-top: 8%;
+}
+
+.presentation-slide-process::before {
+  position: absolute;
+  top: clamp(10px, 1.45vw, 22px);
+  right: 6%;
+  left: 6%;
+  height: 2px;
+  background: color-mix(in srgb, var(--ppt-accent) 55%, transparent);
+  content: '';
+}
+
+.presentation-slide-process > div {
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 13px;
+  text-align: center;
+}
+
+.presentation-slide-process b {
+  display: grid;
+  width: clamp(20px, 2.7vw, 40px);
+  aspect-ratio: 1;
+  place-items: center;
+  border: 2px solid var(--ppt-accent);
+  border-radius: 50%;
+  background: var(--ppt-canvas);
+  color: var(--ppt-accent);
+  font-size: clamp(8px, 0.85vw, 13px);
+}
+
+.presentation-slide-process span {
+  font-size: clamp(8px, 1vw, 16px);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.presentation-slide-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7%;
+  margin-top: 5.5%;
+}
+
+.presentation-slide-columns > div {
+  min-width: 0;
+  padding: 4% 5%;
+  border-top: 2px solid var(--ppt-accent);
+}
+
+.presentation-slide-columns.is-comparison > div {
+  min-height: 150px;
+  border-top: 0;
+  background: color-mix(in srgb, var(--ppt-accent) 10%, var(--ppt-canvas));
+}
+
+.presentation-slide-columns > div > b {
+  display: block;
+  margin-bottom: 8%;
+  color: var(--ppt-accent);
+  font-size: clamp(15px, 2vw, 30px);
+}
+
+.presentation-slide-evidence {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 7%;
+  margin-top: 4.5%;
+}
+
+.presentation-slide-evidence > div > strong {
+  display: block;
+  margin-bottom: 8%;
+  font-size: clamp(13px, 1.65vw, 25px);
+  line-height: 1.35;
+}
+
+.presentation-slide-evidence blockquote {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  margin: 0;
+  padding: 8%;
+  background: color-mix(in srgb, var(--ppt-accent) 11%, var(--ppt-canvas));
+}
+
+.presentation-slide-evidence blockquote > span {
+  color: var(--ppt-accent);
+  font-size: clamp(22px, 3vw, 44px);
+  font-weight: 700;
+  line-height: 0.7;
+}
+
+.presentation-slide-evidence blockquote p {
+  max-height: 6em;
+  margin: 5% 0;
+  overflow: hidden;
+  font-size: clamp(8px, 1vw, 15px);
+  line-height: 1.5;
+}
+
+.presentation-slide-evidence blockquote cite {
+  overflow: hidden;
+  color: var(--ppt-muted);
+  font-size: clamp(7px, 0.8vw, 12px);
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .presentation-slide-canvas.is-title-long .presentation-slide-content h2 {
@@ -7449,7 +7659,7 @@ button.attachment-open:disabled { cursor: wait; opacity: .76; }
   white-space: nowrap;
 }
 
-.presentation-slide-canvas.is-statement .presentation-slide-kicker {
+.presentation-slide-canvas.is-statement:not(.is-cover):not(.is-closing) .presentation-slide-kicker {
   display: none;
 }
 
