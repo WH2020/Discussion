@@ -23,6 +23,7 @@ import type {
   CampSnapshot,
   ExecutionConsolePlacement,
   MessageDeliveryView,
+  TaskPriority,
   TaskStatus,
   TaskView,
   NavigationCampItem,
@@ -65,6 +66,7 @@ import { DiscussionSceneLauncher } from './DiscussionSceneLauncher'
 import type { DiscussionSceneOrchestration } from './discussion-scenes'
 import { createStructuredMessageClipboardData } from './structured-message-clipboard'
 import { CampWorldMap } from './CampWorldMap'
+import { TaskBoard } from './TaskBoard'
 import { projectCampWorldMap } from './camp-world-map-model'
 import {
   CAMP_TIMELINE_READING_POSITIONS_STORAGE_KEY,
@@ -130,7 +132,7 @@ export function composerSendIsDisabled(input: {
 }
 
 export type CampInspectorTab = 'tasks' | 'members'
-export type CampConversationView = 'conversation' | 'world'
+export type CampConversationView = 'conversation' | 'world' | 'taskboard'
 export interface FirstRunCampContext {
   memberAgentId: string
   memberRole: BuiltinMemberAvatarRole
@@ -293,7 +295,8 @@ export function composerRecipientSummary(
 }
 
 export function campConversationViewFromStoredValue(value: string | null): CampConversationView {
-  return value === 'conversation' ? 'conversation' : 'world'
+  if (value === 'conversation' || value === 'taskboard') return value
+  return 'world'
 }
 
 export function initialCampConversationView(
@@ -3529,6 +3532,21 @@ export function CampWorkspace({
                 >
                   地图
                 </button>
+                <button
+                  type="button"
+                  aria-pressed={conversationView === 'taskboard'}
+                  onClick={(event) => {
+                    const trigger = event.currentTarget
+                    const preserveKeyboardFocus = event.detail === 0
+                    if (conversationFind.open) closeConversationFind(false)
+                    setConversationView('taskboard')
+                    if (preserveKeyboardFocus) {
+                      window.requestAnimationFrame(() => trigger.focus({ preventScroll: true }))
+                    }
+                  }}
+                >
+                  任务板
+                </button>
                 {conversationView === 'world' && (
                   <button
                     className="camp-world-map-route-toggle"
@@ -3831,6 +3849,20 @@ export function CampWorkspace({
                 onOpenExecutionProcess={(agentId, trigger) => openExecutionProcess(agentId, trigger)}
               />
             </div>
+            {conversationView === 'taskboard' && (
+              <div className="camp-task-board-panel">
+                <TaskBoard
+                  snapshot={snapshot}
+                  busy={busy}
+                  onTasksChanged={onTasksChanged}
+                  onOpenTask={(task) => {
+                    setFocusedTaskId(task.taskId)
+                    setTaskFocusRequest((request) => request + 1)
+                    openInspector('tasks')
+                  }}
+                />
+              </div>
+            )}
           </div>
           {executionPlacement === 'bottom' && (
             <RunPulse
@@ -7713,6 +7745,10 @@ export function TaskPanel({
   const [description, setDescription] = useState('')
   const [acceptanceCriteriaText, setAcceptanceCriteriaText] = useState('')
   const [assigneeAgentId, setAssigneeAgentId] = useState('')
+  const [priority, setPriority] = useState<TaskPriority>('none')
+  const [labelsText, setLabelsText] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [dueDate, setDueDate] = useState('')
   const [status, setStatus] = useState<TaskStatus>('pending')
   const [blockedReason, setBlockedReason] = useState('')
   const [completionSummary, setCompletionSummary] = useState('')
@@ -7738,6 +7774,10 @@ export function TaskPanel({
     setDescription('')
     setAcceptanceCriteriaText('')
     setAssigneeAgentId('')
+    setPriority('none')
+    setLabelsText('')
+    setStartDate('')
+    setDueDate('')
     setStatus('pending')
     setBlockedReason('')
     setCompletionSummary('')
@@ -7757,6 +7797,10 @@ export function TaskPanel({
     setDescription(task.description)
     setAcceptanceCriteriaText(task.acceptanceCriteria.join('\n'))
     setAssigneeAgentId(task.assigneeAgentId ?? '')
+    setPriority(task.priority)
+    setLabelsText(task.labels.join(', '))
+    setStartDate(task.startDate ?? '')
+    setDueDate(task.dueDate ?? '')
     setStatus(task.status)
     setBlockedReason(task.blockedReason ?? '')
     setCompletionSummary(task.completionSummary ?? '')
@@ -7784,6 +7828,10 @@ export function TaskPanel({
       setFormError('请选择负责人。')
       return
     }
+    if (startDate && dueDate && dueDate < startDate) {
+      setFormError('截止日期不能早于开始日期。')
+      return
+    }
     setSubmitting(true)
     setFormError(null)
     try {
@@ -7793,7 +7841,11 @@ export function TaskPanel({
         title: title.trim(),
         description: description.trim(),
         acceptanceCriteria: parseAcceptanceCriteria(acceptanceCriteriaText),
-        assigneeAgentId
+        assigneeAgentId,
+        priority,
+        labels: parseTaskLabels(labelsText),
+        startDate: startDate || undefined,
+        dueDate: dueDate || undefined
       })
       if (result.status === 'rejected') {
         setFormError(taskCommandMessage(result))
@@ -7823,6 +7875,10 @@ export function TaskPanel({
       setFormError('请填写完成摘要。')
       return
     }
+    if (startDate && dueDate && dueDate < startDate) {
+      setFormError('截止日期不能早于开始日期。')
+      return
+    }
     setSubmitting(true)
     setFormError(null)
     const assignee = assigneeAgentId === (selectedTask.assigneeAgentId ?? '')
@@ -7831,6 +7887,7 @@ export function TaskPanel({
         ? { operation: 'assign' as const, agentId: assigneeAgentId }
         : { operation: 'clear' as const }
     const criteria = parseAcceptanceCriteria(acceptanceCriteriaText)
+    const labels = parseTaskLabels(labelsText)
     try {
       const result = await window.rovai.request<StoredCommandResult>('tasks.update', {
         commandId: crypto.randomUUID(),
@@ -7844,6 +7901,12 @@ export function TaskPanel({
           : { operation: 'clear' },
         status,
         assignee,
+        priority,
+        labels: labels.length > 0
+          ? { operation: 'replace', items: labels }
+          : { operation: 'clear' },
+        startDate: startDate ? { operation: 'set', value: startDate } : { operation: 'clear' },
+        dueDate: dueDate ? { operation: 'set', value: dueDate } : { operation: 'clear' },
         blockedReason: status === 'blocked' ? blockedReason.trim() : undefined,
         completionSummary: status === 'completed' ? completionSummary.trim() : undefined
       })
@@ -7924,6 +7987,10 @@ export function TaskPanel({
             description={description}
             acceptanceCriteriaText={acceptanceCriteriaText}
             assigneeAgentId={assigneeAgentId}
+            priority={priority}
+            labelsText={labelsText}
+            startDate={startDate}
+            dueDate={dueDate}
             status="pending"
             members={activeMembers}
             disabled={submitting || busy}
@@ -7934,6 +8001,10 @@ export function TaskPanel({
             onDescription={setDescription}
             onAcceptanceCriteria={setAcceptanceCriteriaText}
             onAssignee={setAssigneeAgentId}
+            onPriority={setPriority}
+            onLabels={setLabelsText}
+            onStartDate={setStartDate}
+            onDueDate={setDueDate}
             onStatus={setStatus}
           />
           {formError && <p className="task-form-error" role="alert">{formError}</p>}
@@ -7949,6 +8020,10 @@ export function TaskPanel({
             description={description}
             acceptanceCriteriaText={acceptanceCriteriaText}
             assigneeAgentId={assigneeAgentId}
+            priority={priority}
+            labelsText={labelsText}
+            startDate={startDate}
+            dueDate={dueDate}
             status={status}
             blockedReason={blockedReason}
             completionSummary={completionSummary}
@@ -7960,6 +8035,10 @@ export function TaskPanel({
             onDescription={setDescription}
             onAcceptanceCriteria={setAcceptanceCriteriaText}
             onAssignee={setAssigneeAgentId}
+            onPriority={setPriority}
+            onLabels={setLabelsText}
+            onStartDate={setStartDate}
+            onDueDate={setDueDate}
             onStatus={setStatus}
             onBlockedReason={setBlockedReason}
             onCompletionSummary={setCompletionSummary}
@@ -8006,6 +8085,10 @@ function TaskFields({
   description,
   acceptanceCriteriaText,
   assigneeAgentId,
+  priority,
+  labelsText,
+  startDate,
+  dueDate,
   status,
   blockedReason = '',
   completionSummary = '',
@@ -8019,6 +8102,10 @@ function TaskFields({
   onDescription,
   onAcceptanceCriteria,
   onAssignee,
+  onPriority,
+  onLabels,
+  onStartDate,
+  onDueDate,
   onStatus,
   onBlockedReason = () => {},
   onCompletionSummary = () => {}
@@ -8027,6 +8114,10 @@ function TaskFields({
   description: string
   acceptanceCriteriaText: string
   assigneeAgentId: string
+  priority: TaskPriority
+  labelsText: string
+  startDate: string
+  dueDate: string
   status: TaskStatus
   blockedReason?: string
   completionSummary?: string
@@ -8040,6 +8131,10 @@ function TaskFields({
   onDescription(value: string): void
   onAcceptanceCriteria(value: string): void
   onAssignee(value: string): void
+  onPriority(value: TaskPriority): void
+  onLabels(value: string): void
+  onStartDate(value: string): void
+  onDueDate(value: string): void
   onStatus(value: TaskStatus): void
   onBlockedReason?(value: string): void
   onCompletionSummary?(value: string): void
@@ -8054,8 +8149,14 @@ function TaskFields({
       <label className="task-field"><span>验收条件（每行一项，最多 12 项）</span><textarea value={acceptanceCriteriaText} rows={3} maxLength={6000} disabled={disabled} onChange={(event) => onAcceptanceCriteria(event.currentTarget.value)} /></label>
       <div className="task-field-grid">
         <label className="task-field"><span>负责人</span><select value={assigneeAgentId} required={requireAssignee} disabled={disabled} onChange={(event) => onAssignee(event.currentTarget.value)}><option value="">{requireAssignee ? '请选择负责人' : '未分配'}</option>{unavailableAssignee && <option value={assigneeAgentId}>队员不可用</option>}{members.map((member) => <option value={member.agentId} key={member.agentId}>{member.displayName}{member.profilePresence === 'away' ? '（离开）' : ''}</option>)}</select></label>
-        {showStatus && <label className="task-field"><span>状态</span><select value={status} disabled={disabled} onChange={(event) => onStatus(event.currentTarget.value as TaskStatus)}><option value="pending">待处理</option><option value="in_progress">进行中</option><option value="blocked">已阻塞</option><option value="completed">已完成</option>{status === 'cancelled' && <option value="cancelled">已取消</option>}</select></label>}
+        <label className="task-field"><span>优先级</span><select value={priority} disabled={disabled} onChange={(event) => onPriority(event.currentTarget.value as TaskPriority)}><option value="none">无优先级</option><option value="urgent">紧急</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label>
       </div>
+      <label className="task-field"><span>标签（逗号分隔，最多 12 个）</span><input value={labelsText} maxLength={395} disabled={disabled} placeholder="前端, Windows, 交付" onChange={(event) => onLabels(event.currentTarget.value)} /></label>
+      <div className="task-field-grid">
+        <label className="task-field"><span>开始日期</span><input type="date" value={startDate} disabled={disabled} onChange={(event) => onStartDate(event.currentTarget.value)} /></label>
+        <label className="task-field"><span>截止日期</span><input type="date" value={dueDate} min={startDate || undefined} disabled={disabled} onChange={(event) => onDueDate(event.currentTarget.value)} /></label>
+      </div>
+      {showStatus && <label className="task-field"><span>状态</span><select value={status} disabled={disabled} onChange={(event) => onStatus(event.currentTarget.value as TaskStatus)}><option value="pending">待处理</option><option value="in_progress">进行中</option><option value="blocked">已阻塞</option><option value="completed">已完成</option>{status === 'cancelled' && <option value="cancelled">已取消</option>}</select></label>}
       {showStatus && status === 'blocked' && <label className="task-field"><span>阻塞原因</span><textarea value={blockedReason} rows={3} maxLength={4000} required disabled={disabled} onChange={(event) => onBlockedReason(event.currentTarget.value)} /></label>}
       {showStatus && status === 'completed' && <label className="task-field"><span>完成摘要</span><textarea value={completionSummary} rows={3} maxLength={4000} required disabled={disabled} onChange={(event) => onCompletionSummary(event.currentTarget.value)} /></label>}
       {showStatus && status === 'cancelled' && <label className="task-field"><span>取消原因</span><textarea value={cancelReason} rows={3} disabled readOnly /></label>}
@@ -8077,6 +8178,14 @@ function parseAcceptanceCriteria(value: string): string[] {
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 12)
+}
+
+function parseTaskLabels(value: string): string[] {
+  const labels = value
+    .split(/[,，\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return [...new Map(labels.map((label) => [label.toLocaleLowerCase(), label])).values()].slice(0, 12)
 }
 
 function formatDateTime(value: string): string {

@@ -315,6 +315,12 @@ pub struct CreateTaskCommand {
     #[serde(default)]
     pub acceptance_criteria: Vec<String>,
     pub assignee_agent_id: String,
+    #[serde(default)]
+    pub priority: TaskPriority,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    pub start_date: Option<String>,
+    pub due_date: Option<String>,
 }
 
 impl sealed::Sealed for CreateTaskCommand {}
@@ -344,6 +350,29 @@ impl TaskStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskPriority {
+    #[default]
+    None,
+    Urgent,
+    High,
+    Medium,
+    Low,
+}
+
+impl TaskPriority {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Urgent => "urgent",
+            Self::High => "high",
+            Self::Medium => "medium",
+            Self::Low => "low",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum TaskAssigneeUpdate {
@@ -367,6 +396,28 @@ pub enum TaskAcceptanceCriteriaUpdate {
     Clear,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+pub enum TaskLabelsUpdate {
+    #[default]
+    Unchanged,
+    Replace {
+        items: Vec<String>,
+    },
+    Clear,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+pub enum TaskDateUpdate {
+    #[default]
+    Unchanged,
+    Set {
+        value: String,
+    },
+    Clear,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTaskCommand {
@@ -379,6 +430,14 @@ pub struct UpdateTaskCommand {
     pub status: Option<TaskStatus>,
     #[serde(default)]
     pub assignee: TaskAssigneeUpdate,
+    pub priority: Option<TaskPriority>,
+    #[serde(default)]
+    pub labels: TaskLabelsUpdate,
+    #[serde(default)]
+    pub start_date: TaskDateUpdate,
+    #[serde(default)]
+    pub due_date: TaskDateUpdate,
+    pub board_order: Option<i64>,
     pub blocked_reason: Option<String>,
     pub completion_summary: Option<String>,
     pub cancel_reason: Option<String>,
@@ -398,6 +457,11 @@ pub struct TaskRecord {
     pub title: String,
     pub description: String,
     pub acceptance_criteria: Vec<String>,
+    pub priority: TaskPriority,
+    pub labels: Vec<String>,
+    pub start_date: Option<String>,
+    pub due_date: Option<String>,
+    pub board_order: i64,
     pub status: TaskStatus,
     pub assignee_agent_id: Option<String>,
     pub blocked_reason: Option<String>,
@@ -452,6 +516,11 @@ pub struct TaskListItem {
     pub title: String,
     pub status: TaskStatus,
     pub assignee_agent_id: Option<String>,
+    pub priority: TaskPriority,
+    pub labels: Vec<String>,
+    pub start_date: Option<String>,
+    pub due_date: Option<String>,
+    pub board_order: i64,
     pub available_actions: Vec<String>,
 }
 
@@ -470,6 +539,11 @@ struct TaskListRow {
     status: TaskStatus,
     assignee_agent_id: Option<String>,
     created_at: String,
+    priority: TaskPriority,
+    labels: Vec<String>,
+    start_date: Option<String>,
+    due_date: Option<String>,
+    board_order: i64,
 }
 
 #[derive(Debug, Default)]
@@ -1437,6 +1511,7 @@ impl CollaborationService {
             let description = envelope.payload.description.trim().to_string();
             let acceptance_criteria =
                 normalize_acceptance_criteria(&envelope.payload.acceptance_criteria, true)?;
+            let labels = normalize_task_labels(&envelope.payload.labels)?;
             let task_id = Uuid::new_v4().to_string();
             if envelope.camp_id.as_deref() != Some(envelope.payload.camp_id.as_str()) {
                 return Ok(rejected(
@@ -1484,6 +1559,11 @@ impl CollaborationService {
             }
 
             let now = chrono::Utc::now().to_rfc3339();
+            let board_order = transaction.query_row(
+                "SELECT COALESCE(MAX(board_order), 0) + 1024 FROM task WHERE camp_id = ?1",
+                [&envelope.payload.camp_id],
+                |row| row.get::<_, i64>(0),
+            )?;
             let (created_by_type, created_by_id, source_agent_run_id) =
                 task_creator_parts(&envelope.actor)?;
             if let Some(source_agent_run_id) = source_agent_run_id {
@@ -1507,12 +1587,14 @@ impl CollaborationService {
                     source_agent_run_id,
                     blocked_reason, completion_summary, cancel_reason,
                     closed_by_type, closed_by_id, closed_by_agent_run_id,
-                    version, created_at, updated_at, closed_at
+                    version, created_at, updated_at, closed_at,
+                    priority, labels_json, start_date, due_date, board_order
                 ) VALUES (
                     ?1, ?2, ?3, ?4, ?5, 'pending',
                     ?6, ?7, ?8, ?9,
                     NULL, NULL, NULL, NULL, NULL, NULL,
-                    1, ?10, ?10, NULL
+                    1, ?10, ?10, NULL,
+                    ?11, ?12, ?13, ?14, ?15
                 )
                 "#,
                 params![
@@ -1526,6 +1608,11 @@ impl CollaborationService {
                     created_by_id,
                     source_agent_run_id,
                     now,
+                    envelope.payload.priority.as_str(),
+                    serde_json::to_string(&labels)?,
+                    envelope.payload.start_date,
+                    envelope.payload.due_date,
+                    board_order,
                 ],
             )?;
             append_domain_event(
@@ -1660,6 +1747,21 @@ impl CollaborationService {
                 }
                 TaskAcceptanceCriteriaUpdate::Clear => projected.acceptance_criteria.clear(),
             }
+            if let Some(priority) = envelope.payload.priority {
+                projected.priority = priority;
+            }
+            match &envelope.payload.labels {
+                TaskLabelsUpdate::Unchanged => {}
+                TaskLabelsUpdate::Replace { items } => {
+                    projected.labels = normalize_task_labels(items)?;
+                }
+                TaskLabelsUpdate::Clear => projected.labels.clear(),
+            }
+            apply_task_date_update(&mut projected.start_date, &envelope.payload.start_date)?;
+            apply_task_date_update(&mut projected.due_date, &envelope.payload.due_date)?;
+            if let Some(board_order) = envelope.payload.board_order {
+                projected.board_order = board_order;
+            }
             if let Some(status) = envelope.payload.status {
                 projected.status = status;
             }
@@ -1720,6 +1822,10 @@ impl CollaborationService {
                     "Clearing the assignee requires final status pending",
                 ));
             }
+            validate_task_date_range(
+                projected.start_date.as_deref(),
+                projected.due_date.as_deref(),
+            )?;
             if let Err(message) = validate_projected_task(&projected) {
                 return Ok(rejected("task.invalid_projected_state", &message));
             }
@@ -1767,8 +1873,10 @@ impl CollaborationService {
                     blocked_reason = ?7, completion_summary = ?8, cancel_reason = ?9,
                     closed_by_type = ?10, closed_by_id = ?11,
                     closed_by_agent_run_id = ?12, closed_at = ?13,
-                    version = version + 1, updated_at = ?14
-                WHERE id = ?1 AND version = ?15
+                    priority = ?14, labels_json = ?15,
+                    start_date = ?16, due_date = ?17, board_order = ?18,
+                    version = version + 1, updated_at = ?19
+                WHERE id = ?1 AND version = ?20
                 "#,
                 params![
                     envelope.payload.task_id,
@@ -1784,6 +1892,11 @@ impl CollaborationService {
                     projected.closed_by_id,
                     projected.closed_by_agent_run_id,
                     projected.closed_at,
+                    projected.priority.as_str(),
+                    serde_json::to_string(&projected.labels)?,
+                    projected.start_date,
+                    projected.due_date,
+                    projected.board_order,
                     now,
                     envelope.payload.expected_version,
                 ],
@@ -1844,7 +1957,8 @@ impl CollaborationService {
                    assignee_agent_id, blocked_reason, completion_summary, cancel_reason,
                    created_by_type, created_by_id, source_agent_run_id,
                    closed_by_type, closed_by_id, closed_by_agent_run_id,
-                   version, created_at, updated_at, closed_at
+                   version, created_at, updated_at, closed_at,
+                   priority, labels_json, start_date, due_date, board_order
             FROM task
             WHERE camp_id = ?1
             ORDER BY created_at DESC, id DESC
@@ -1903,7 +2017,7 @@ impl CollaborationService {
             .collect::<Vec<_>>()
             .join(", ");
         let mut sql = format!(
-            "SELECT id, title, status, assignee_agent_id, created_at FROM task WHERE camp_id = ?1 AND status IN ({status_placeholders})"
+            "SELECT id, title, status, assignee_agent_id, created_at, priority, labels_json, start_date, due_date, board_order FROM task WHERE camp_id = ?1 AND status IN ({status_placeholders})"
         );
         let mut values: Vec<rusqlite::types::Value> = vec![camp_id.to_string().into()];
         values.extend(
@@ -1970,7 +2084,8 @@ impl CollaborationService {
                        assignee_agent_id, blocked_reason, completion_summary, cancel_reason,
                        created_by_type, created_by_id, source_agent_run_id,
                        closed_by_type, closed_by_id, closed_by_agent_run_id,
-                       version, created_at, updated_at, closed_at
+                       version, created_at, updated_at, closed_at,
+                       priority, labels_json, start_date, due_date, board_order
                 FROM task
                 WHERE id = ?1 AND camp_id = ?2
                 "#,
@@ -3299,6 +3414,21 @@ fn task_read_scope(
     }
 }
 
+fn task_priority_from_sql(value: String, column: usize) -> rusqlite::Result<TaskPriority> {
+    match value.as_str() {
+        "none" => Ok(TaskPriority::None),
+        "urgent" => Ok(TaskPriority::Urgent),
+        "high" => Ok(TaskPriority::High),
+        "medium" => Ok(TaskPriority::Medium),
+        "low" => Ok(TaskPriority::Low),
+        _ => Err(rusqlite::Error::FromSqlConversionFailure(
+            column,
+            rusqlite::types::Type::Text,
+            format!("invalid Task priority: {value}").into(),
+        )),
+    }
+}
+
 fn task_record_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
     let status = match row.get::<_, String>(5)?.as_str() {
         "pending" => TaskStatus::Pending,
@@ -3318,12 +3448,22 @@ fn task_record_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord>
     let acceptance_criteria = serde_json::from_str(&acceptance_criteria_json).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(error))
     })?;
+    let priority = task_priority_from_sql(row.get::<_, String>(20)?, 20)?;
+    let labels_json = row.get::<_, String>(21)?;
+    let labels = serde_json::from_str(&labels_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(21, rusqlite::types::Type::Text, Box::new(error))
+    })?;
     Ok(TaskRecord {
         id: row.get(0)?,
         camp_id: row.get(1)?,
         title: row.get(2)?,
         description: row.get(3)?,
         acceptance_criteria,
+        priority,
+        labels,
+        start_date: row.get(22)?,
+        due_date: row.get(23)?,
+        board_order: row.get(24)?,
         status,
         assignee_agent_id: row.get(6)?,
         blocked_reason: row.get(7)?,
@@ -3350,7 +3490,8 @@ fn load_task_record(transaction: &Connection, task_id: &str) -> Result<Option<Ta
                    assignee_agent_id, blocked_reason, completion_summary, cancel_reason,
                    created_by_type, created_by_id, source_agent_run_id,
                    closed_by_type, closed_by_id, closed_by_agent_run_id,
-                   version, created_at, updated_at, closed_at
+                   version, created_at, updated_at, closed_at,
+                   priority, labels_json, start_date, due_date, board_order
             FROM task WHERE id = ?1
             "#,
             [task_id],
@@ -3389,12 +3530,21 @@ fn task_list_row_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskListR
             ));
         }
     };
+    let labels_json = row.get::<_, String>(6)?;
+    let labels = serde_json::from_str(&labels_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(error))
+    })?;
     Ok(TaskListRow {
         task_id: row.get(0)?,
         title: row.get(1)?,
         status,
         assignee_agent_id: row.get(3)?,
         created_at: row.get(4)?,
+        priority: task_priority_from_sql(row.get::<_, String>(5)?, 5)?,
+        labels,
+        start_date: row.get(7)?,
+        due_date: row.get(8)?,
+        board_order: row.get(9)?,
     })
 }
 
@@ -3404,6 +3554,11 @@ fn task_list_item(actor: &ActorRef, task: TaskListRow, can_update_any: bool) -> 
         title: task.title,
         status: task.status,
         assignee_agent_id: task.assignee_agent_id.clone(),
+        priority: task.priority,
+        labels: task.labels,
+        start_date: task.start_date,
+        due_date: task.due_date,
+        board_order: task.board_order,
         available_actions: task_available_actions_for(
             actor,
             task.status,
@@ -4273,6 +4428,10 @@ fn validate_task_input(command: &CreateTaskCommand) -> Result<()> {
         anyhow::bail!("Task description must not exceed 8000 characters");
     }
     normalize_acceptance_criteria(&command.acceptance_criteria, true)?;
+    normalize_task_labels(&command.labels)?;
+    validate_task_date(command.start_date.as_deref(), "startDate")?;
+    validate_task_date(command.due_date.as_deref(), "dueDate")?;
+    validate_task_date_range(command.start_date.as_deref(), command.due_date.as_deref())?;
     Ok(())
 }
 
@@ -4288,6 +4447,11 @@ fn validate_task_update_input(command: &UpdateTaskCommand) -> Result<()> {
         )
         && command.status.is_none()
         && matches!(command.assignee, TaskAssigneeUpdate::Unchanged)
+        && command.priority.is_none()
+        && matches!(command.labels, TaskLabelsUpdate::Unchanged)
+        && matches!(command.start_date, TaskDateUpdate::Unchanged)
+        && matches!(command.due_date, TaskDateUpdate::Unchanged)
+        && command.board_order.is_none()
         && command.blocked_reason.is_none()
         && command.completion_summary.is_none()
         && command.cancel_reason.is_none()
@@ -4308,6 +4472,21 @@ fn validate_task_update_input(command: &UpdateTaskCommand) -> Result<()> {
     }
     if let TaskAcceptanceCriteriaUpdate::Replace { items } = &command.acceptance_criteria {
         normalize_acceptance_criteria(items, false)?;
+    }
+    if let TaskLabelsUpdate::Replace { items } = &command.labels {
+        normalize_task_labels(items)?;
+    }
+    if let TaskDateUpdate::Set { value } = &command.start_date {
+        validate_task_date(Some(value), "startDate")?;
+    }
+    if let TaskDateUpdate::Set { value } = &command.due_date {
+        validate_task_date(Some(value), "dueDate")?;
+    }
+    if command
+        .board_order
+        .is_some_and(|value| value.unsigned_abs() > 9_000_000_000_000_000)
+    {
+        anyhow::bail!("boardOrder is outside the supported range");
     }
     if let TaskAssigneeUpdate::Assign { agent_id } = &command.assignee
         && agent_id.trim().is_empty()
@@ -4357,6 +4536,61 @@ fn normalize_acceptance_criteria(items: &[String], allow_empty: bool) -> Result<
     Ok(normalized)
 }
 
+fn normalize_task_labels(items: &[String]) -> Result<Vec<String>> {
+    if items.len() > 12 {
+        anyhow::bail!("labels must contain at most 12 items");
+    }
+    let normalized = items
+        .iter()
+        .map(|item| item.trim().to_string())
+        .collect::<Vec<_>>();
+    if normalized
+        .iter()
+        .any(|item| item.is_empty() || item.chars().count() > 32)
+    {
+        anyhow::bail!("Each Task label must contain 1 to 32 characters");
+    }
+    let mut unique = BTreeSet::new();
+    if normalized
+        .iter()
+        .any(|item| !unique.insert(item.to_lowercase()))
+    {
+        anyhow::bail!("Task labels must not contain duplicates");
+    }
+    Ok(normalized)
+}
+
+fn validate_task_date(value: Option<&str>, name: &str) -> Result<()> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .with_context(|| format!("{name} must use YYYY-MM-DD"))?;
+    Ok(())
+}
+
+fn validate_task_date_range(start_date: Option<&str>, due_date: Option<&str>) -> Result<()> {
+    if let (Some(start_date), Some(due_date)) = (start_date, due_date)
+        && start_date > due_date
+    {
+        anyhow::bail!("dueDate must not be earlier than startDate");
+    }
+    Ok(())
+}
+
+fn apply_task_date_update(target: &mut Option<String>, update: &TaskDateUpdate) -> Result<()> {
+    match update {
+        TaskDateUpdate::Unchanged => {}
+        TaskDateUpdate::Set { value } => {
+            let value = value.trim();
+            validate_task_date(Some(value), "Task date")?;
+            *target = Some(value.to_string());
+        }
+        TaskDateUpdate::Clear => *target = None,
+    }
+    Ok(())
+}
+
 fn validate_projected_task(task: &TaskRecord) -> std::result::Result<(), String> {
     match task.status {
         TaskStatus::Pending => Ok(()),
@@ -4400,6 +4634,11 @@ fn task_business_fields_changed(left: &TaskRecord, right: &TaskRecord) -> bool {
     left.title != right.title
         || left.description != right.description
         || left.acceptance_criteria != right.acceptance_criteria
+        || left.priority != right.priority
+        || left.labels != right.labels
+        || left.start_date != right.start_date
+        || left.due_date != right.due_date
+        || left.board_order != right.board_order
         || left.status != right.status
         || left.assignee_agent_id != right.assignee_agent_id
         || left.blocked_reason != right.blocked_reason
@@ -4433,6 +4672,11 @@ fn assignee_update_fields_allowed(command: &UpdateTaskCommand) -> bool {
             TaskAcceptanceCriteriaUpdate::Unchanged
         )
         && matches!(command.assignee, TaskAssigneeUpdate::Unchanged)
+        && command.priority.is_none()
+        && matches!(command.labels, TaskLabelsUpdate::Unchanged)
+        && matches!(command.start_date, TaskDateUpdate::Unchanged)
+        && matches!(command.due_date, TaskDateUpdate::Unchanged)
+        && command.board_order.is_none()
         && command.cancel_reason.is_none()
 }
 
@@ -7842,6 +8086,90 @@ mod slow_tests {
                 .unwrap();
             assert_eq!(exists, 0);
         }
+        drop(database);
+        std::fs::remove_dir_all(directory).expect("temporary database should be removable");
+    }
+
+    #[test]
+    fn task_board_metadata_round_trips_through_core_authority() {
+        let (mut database, directory) = test_database();
+        let service = CollaborationService::default();
+        let camp_id = create_camp_with_members(&service, &mut database, &directory, &["agent_2"]);
+        let created = service
+            .create_task(
+                &mut database,
+                &user_envelope(
+                    "create-task-board-metadata",
+                    Some(&camp_id),
+                    CreateTaskCommand {
+                        camp_id: camp_id.clone(),
+                        title: "任务板元数据".to_string(),
+                        description: String::new(),
+                        assignee_agent_id: "agent_2".to_string(),
+                        priority: TaskPriority::Urgent,
+                        labels: vec!["Renderer".to_string(), "Windows".to_string()],
+                        start_date: Some("2026-08-30".to_string()),
+                        due_date: Some("2026-09-02".to_string()),
+                        ..Default::default()
+                    },
+                ),
+            )
+            .unwrap();
+        let task_id = created.result.payload["taskId"].as_str().unwrap();
+        assert_eq!(created.result.payload["priority"], "urgent");
+        assert_eq!(
+            created.result.payload["labels"],
+            json!(["Renderer", "Windows"])
+        );
+        assert_eq!(created.result.payload["startDate"], "2026-08-30");
+        assert_eq!(created.result.payload["dueDate"], "2026-09-02");
+        assert_eq!(created.result.payload["boardOrder"], 1024);
+
+        let updated = service
+            .update_task(
+                &mut database,
+                &user_envelope(
+                    "update-task-board-metadata",
+                    Some(&camp_id),
+                    UpdateTaskCommand {
+                        task_id: task_id.to_string(),
+                        expected_version: 1,
+                        priority: Some(TaskPriority::Low),
+                        labels: TaskLabelsUpdate::Replace {
+                            items: vec!["Core".to_string()],
+                        },
+                        start_date: TaskDateUpdate::Clear,
+                        due_date: TaskDateUpdate::Set {
+                            value: "2026-09-04".to_string(),
+                        },
+                        board_order: Some(2048),
+                        ..Default::default()
+                    },
+                ),
+            )
+            .unwrap();
+        assert_eq!(updated.result.status, CommandResultStatus::Applied);
+        assert_eq!(updated.result.payload["priority"], "low");
+        assert_eq!(updated.result.payload["labels"], json!(["Core"]));
+        assert!(updated.result.payload["startDate"].is_null());
+        assert_eq!(updated.result.payload["dueDate"], "2026-09-04");
+        assert_eq!(updated.result.payload["boardOrder"], 2048);
+
+        let listed = service
+            .query_visible_tasks(
+                &database,
+                &camp_id,
+                &ActorRef::User {
+                    user_id: "local_user".to_string(),
+                },
+                None,
+                &TaskListQuery::default(),
+            )
+            .unwrap();
+        assert_eq!(listed.tasks[0].priority, TaskPriority::Low);
+        assert_eq!(listed.tasks[0].labels, vec!["Core".to_string()]);
+        assert_eq!(listed.tasks[0].board_order, 2048);
+
         drop(database);
         std::fs::remove_dir_all(directory).expect("temporary database should be removable");
     }

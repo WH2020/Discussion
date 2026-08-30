@@ -2,7 +2,7 @@
 document_type: ui-component-contract
 authority: renderer-camp-workspace
 status: accepted
-last_updated: 2026-08-25
+last_updated: 2026-08-30
 ---
 
 # Camp 会话工作区
@@ -282,6 +282,12 @@ summary 与可选 detail；即使没有任何 Execution Evidence 也默认展开
 
 每个 Task 在创建位置只显示一张读取当前五态文案、标题和负责人的实时卡。Inspector list/detail
 负责发现和完整责任审计，Agent 过程负责执行事实；Task 取消不等于 AgentRun 或 CampTurn 取消。
+
+Camp 主阅读区在“会话 / 地图”旁提供“任务板”视图。任务板使用主区宽度承载四列 Kanban，Inspector
+仍是同一 Task 的详情、编辑与审计入口；点击卡片只打开 Inspector，不复制实体。列固定映射
+`pending / in_progress / blocked / completed`，取消项只在显式归档中出现。搜索支持标题、说明和标签，
+负责人及优先级筛选只影响本地投影。拖放与卡片状态选择是同一个 exact-version update；阻塞与完成
+转换先收集必填说明，terminal 卡片不可移动，并保留键盘可操作的状态选择作为拖放替代。
 
 所有 pending Approval 位于 Composer 正上方的唯一非模态 Dock。多项请求显示“N 项待审批”，
 保留 Runtime 原生选项、范围和决定身份。Header/通知摘要只展开、定位并聚焦 Dock，不改变

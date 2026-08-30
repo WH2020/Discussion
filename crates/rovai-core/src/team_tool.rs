@@ -20,8 +20,8 @@ use crate::{
     },
     collaboration::{
         CollaborationService, CreateTaskCommand, TaskAcceptanceCriteriaUpdate, TaskAssigneeFilter,
-        TaskAssigneeUpdate, TaskDetail, TaskListPage, TaskListQuery, TaskStatus, UpdateTaskCommand,
-        append_domain_event,
+        TaskAssigneeUpdate, TaskDateUpdate, TaskDetail, TaskLabelsUpdate, TaskListPage,
+        TaskListQuery, TaskPriority, TaskStatus, UpdateTaskCommand, append_domain_event,
     },
     command::{
         ActorRef, CommandEnvelope, CommandExecution, CommandHandlerResult, DomainCommand,
@@ -100,6 +100,12 @@ pub struct TeamCreateTaskInput {
     #[serde(default)]
     pub acceptance_criteria: Vec<String>,
     pub assignee_agent_id: String,
+    #[serde(default)]
+    pub priority: TaskPriority,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    pub start_date: Option<String>,
+    pub due_date: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -132,6 +138,19 @@ pub struct TeamUpdateTaskInput {
     pub assignee_agent_id: Option<String>,
     #[serde(default)]
     pub clear_assignee: bool,
+    pub priority: Option<TaskPriority>,
+    pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub clear_labels: bool,
+    #[serde(default, deserialize_with = "deserialize_non_null_optional_string")]
+    pub start_date: Option<String>,
+    #[serde(default)]
+    pub clear_start_date: bool,
+    #[serde(default, deserialize_with = "deserialize_non_null_optional_string")]
+    pub due_date: Option<String>,
+    #[serde(default)]
+    pub clear_due_date: bool,
+    pub board_order: Option<i64>,
     pub blocked_reason: Option<String>,
     pub completion_summary: Option<String>,
     pub cancel_reason: Option<String>,
@@ -635,7 +654,17 @@ impl TeamToolService {
                     "type": "string",
                     "minLength": 1,
                     "description": "Required Current CampMember who owns the responsibility. Creation does not notify, wake, or start this Assignee."
-                }
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["none", "urgent", "high", "medium", "low"]
+                },
+                "labels": {
+                    "type": "array", "maxItems": 12, "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1, "maxLength": 32}
+                },
+                "startDate": {"type": "string", "format": "date"},
+                "dueDate": {"type": "string", "format": "date"}
             }
         })
     }
@@ -680,6 +709,20 @@ impl TeamToolService {
                     "type": "boolean",
                     "description": "User/Default Lead only. Set true with final status pending to place the Task in the unassigned holding/recovery state. Must not be combined with assigneeAgentId."
                 },
+                "priority": {
+                    "type": "string",
+                    "enum": ["none", "urgent", "high", "medium", "low"]
+                },
+                "labels": {
+                    "type": "array", "maxItems": 12, "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1, "maxLength": 32}
+                },
+                "clearLabels": {"type": "boolean"},
+                "startDate": {"type": "string", "format": "date"},
+                "clearStartDate": {"type": "boolean"},
+                "dueDate": {"type": "string", "format": "date"},
+                "clearDueDate": {"type": "boolean"},
+                "boardOrder": {"type": "integer"},
                 "blockedReason": {"type": "string", "minLength": 1, "maxLength": 4000},
                 "completionSummary": {"type": "string", "minLength": 1, "maxLength": 4000},
                 "cancelReason": {"type": "string", "minLength": 1, "maxLength": 4000}
@@ -1467,6 +1510,10 @@ impl TeamToolService {
                 description: invocation.input.description.clone(),
                 acceptance_criteria: invocation.input.acceptance_criteria.clone(),
                 assignee_agent_id: invocation.input.assignee_agent_id.clone(),
+                priority: invocation.input.priority,
+                labels: invocation.input.labels.clone(),
+                start_date: invocation.input.start_date.clone(),
+                due_date: invocation.input.due_date.clone(),
             },
         };
         CollaborationService::default().create_task(database, &envelope)
@@ -1570,6 +1617,33 @@ impl TeamToolService {
                 "clearAcceptanceCriteria cannot be combined with acceptanceCriteria",
             ));
         }
+        for (clear, value, clear_name, value_name) in [
+            (
+                invocation.input.clear_labels,
+                invocation.input.labels.is_some(),
+                "clearLabels",
+                "labels",
+            ),
+            (
+                invocation.input.clear_start_date,
+                invocation.input.start_date.is_some(),
+                "clearStartDate",
+                "startDate",
+            ),
+            (
+                invocation.input.clear_due_date,
+                invocation.input.due_date.is_some(),
+                "clearDueDate",
+                "dueDate",
+            ),
+        ] {
+            if clear && value {
+                return Err(invocation_error(
+                    "team_tool.invalid_input",
+                    &format!("{clear_name} cannot be combined with {value_name}"),
+                ));
+            }
+        }
         let assignee = match (
             &invocation.input.assignee_agent_id,
             invocation.input.clear_assignee,
@@ -1589,6 +1663,30 @@ impl TeamToolService {
                 items: items.clone(),
             },
             (None, false) => TaskAcceptanceCriteriaUpdate::Unchanged,
+        };
+        let labels = match (&invocation.input.labels, invocation.input.clear_labels) {
+            (_, true) => TaskLabelsUpdate::Clear,
+            (Some(items), false) => TaskLabelsUpdate::Replace {
+                items: items.clone(),
+            },
+            (None, false) => TaskLabelsUpdate::Unchanged,
+        };
+        let start_date = match (
+            &invocation.input.start_date,
+            invocation.input.clear_start_date,
+        ) {
+            (_, true) => TaskDateUpdate::Clear,
+            (Some(value), false) => TaskDateUpdate::Set {
+                value: value.clone(),
+            },
+            (None, false) => TaskDateUpdate::Unchanged,
+        };
+        let due_date = match (&invocation.input.due_date, invocation.input.clear_due_date) {
+            (_, true) => TaskDateUpdate::Clear,
+            (Some(value), false) => TaskDateUpdate::Set {
+                value: value.clone(),
+            },
+            (None, false) => TaskDateUpdate::Unchanged,
         };
         let envelope = CommandEnvelope {
             command_id: team_command_id(
@@ -1611,6 +1709,11 @@ impl TeamToolService {
                 acceptance_criteria,
                 status: invocation.input.status,
                 assignee,
+                priority: invocation.input.priority,
+                labels,
+                start_date,
+                due_date,
+                board_order: invocation.input.board_order,
                 blocked_reason: invocation.input.blocked_reason.clone(),
                 completion_summary: invocation.input.completion_summary.clone(),
                 cancel_reason: invocation.input.cancel_reason.clone(),

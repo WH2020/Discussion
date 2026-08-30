@@ -3,7 +3,7 @@ document_type: contract
 contract: durable-task-v3
 status: accepted
 target_version: v0.54
-last_updated: 2026-08-11
+last_updated: 2026-08-30
 ---
 
 # Durable Task v3
@@ -35,8 +35,11 @@ ADR-0137 的旧 instruction ownership 条款。
 `assigneeAgentId`，不得为 `null` 或省略。初态固定为 `pending`，创建不会发送 CampMessage、启动或
 唤醒 Assignee。
 
-责任定义字段为：`title`、`description`、有序 `acceptanceCriteria` 与 `assigneeAgentId`。User/Lead
-拥有这些字段以及 release、reassign、`pending`、`cancelled` 的控制权。
+责任定义字段为：`title`、`description`、有序 `acceptanceCriteria`、`assigneeAgentId`、`priority`、
+`labels`、`startDate`、`dueDate` 与 `boardOrder`。`priority` 是
+`none | urgent | high | medium | low`；标签最多 12 个、每个 1–32 字符；日期使用 `YYYY-MM-DD`，
+且 `dueDate` 不得早于 `startDate`。`boardOrder` 只拥有同一 Camp 看板内的稳定展示顺序，不表达
+状态、依赖或执行进度。User/Lead 拥有这些字段以及 release、reassign、`pending`、`cancelled` 的控制权。
 
 ## Assignee execution-state update
 
@@ -51,7 +54,8 @@ ADR-0137 的旧 instruction ownership 条款。
 同一 `blocked` 状态可更新 `blockedReason`。进入 `blocked` 必须有非空 `blockedReason`；进入
 `completed` 必须仍有明确 `assigneeAgentId` 且有非空 `completionSummary`；离开对应状态清除其说明。
 unassigned recovery Task 必须先重新分配，不能由 User/Lead 直接宣告 completed。Assignee 不得修改 title、
-description、Acceptance Criteria、assignment、release、reassignment、cancelReason，不得返回
+description、Acceptance Criteria、priority、labels、日期、boardOrder、assignment、release、reassignment、
+cancelReason，不得返回
 `pending`、取消、认领 unassigned Task 或修改他人 Task。包含任一越权字段的 patch 整体返回
 `task.update_forbidden`，不会部分应用。所有更新继续使用 `expectedVersion`；terminal Task 不可变。
 
@@ -77,12 +81,24 @@ User/Lead 显式分配。
   "title": "…",
   "status": "blocked",
   "assigneeAgentId": "agent_…",
+  "priority": "high",
+  "labels": ["renderer"],
+  "startDate": "2026-08-30",
+  "dueDate": "2026-09-02",
+  "boardOrder": 2048,
   "availableActions": ["update"]
 }
 ```
 
 `assigneeAgentId` 在 holding/recovery state 可为 `null`。List 不返回 description、AC、version 或审计
 字段；需要 mutation 的调用者必须先 `team.get_task` 取得完整当前 `TaskDetail` 与 version。
+
+## Taskboard projection
+
+Renderer 的 Camp 任务板只投影现有 Task，不创建第二种卡片或第二个任务存储。默认列与当前生命周期
+一一对应为 `pending`、`in_progress`、`blocked`、`completed`；`cancelled` 只进入显式归档视图。
+拖放仍提交 `task.update` 与 exact `expectedVersion`：进入 `blocked`/`completed` 必须先收集匹配说明，
+terminal Task 不可拖出。任务板的搜索、筛选和分列是读取侧行为，不改变 Task authority、通知或执行。
 
 `availableActions` 只可能是 `[]` 或 `["update"]`：User/Lead 对非终态 Task 得到 `update`；当前
 Assignee 对自己的非终态 Task 得到 `update`；其他情况为空。

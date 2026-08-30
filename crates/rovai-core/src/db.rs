@@ -50,8 +50,10 @@ pub struct Database {
     runtime_camp_files_root_identity_digest: String,
 }
 
-const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.22";
-const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 63;
+const CURRENT_DATA_CONTRACT_VERSION: &str = "v1.23";
+const CURRENT_PROJECTION_SCHEMA_VERSION: i64 = 64;
+const V109_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.22";
+const V109_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 63;
 const V108_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.21";
 const V108_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION: i64 = 62;
 const V107_MIGRATION_SOURCE_DATA_CONTRACT_VERSION: &str = "v1.20";
@@ -169,6 +171,7 @@ struct CurrentMigrationState {
     v106: bool,
     v107: bool,
     v108: bool,
+    v109: bool,
 }
 
 impl CurrentMigrationState {
@@ -178,6 +181,49 @@ impl CurrentMigrationState {
             return false;
         }
         if contract == CURRENT_DATA_CONTRACT_VERSION && schema == CURRENT_PROJECTION_SCHEMA_VERSION
+        {
+            return self.v70
+                && self.v71
+                && self.v76
+                && self.v77
+                && self.v78
+                && self.v79
+                && self.v80
+                && self.v81
+                && self.v82
+                && self.v83
+                && self.v84
+                && self.v85
+                && self.v86
+                && self.v87
+                && self.v88
+                && self.v89
+                && self.v90
+                && self.v91
+                && self.v92
+                && self.v93
+                && self.v94
+                && self.v95
+                && self.v96
+                && self.v97
+                && self.v98
+                && self.v99
+                && self.v100
+                && self.v101
+                && self.v102
+                && self.v103
+                && self.v104
+                && self.v105
+                && self.v106
+                && self.v107
+                && self.v108
+                && self.v109;
+        }
+        if self.v109 {
+            return false;
+        }
+        if contract == V109_MIGRATION_SOURCE_DATA_CONTRACT_VERSION
+            && schema == V109_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION
         {
             return self.v70
                 && self.v71
@@ -1174,7 +1220,8 @@ fn load_current_migration_state(
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 105),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 106),
                EXISTS(SELECT 1 FROM schema_migration WHERE version = 107),
-               EXISTS(SELECT 1 FROM schema_migration WHERE version = 108)
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 108),
+               EXISTS(SELECT 1 FROM schema_migration WHERE version = 109)
         "#,
         [],
         |row| {
@@ -1218,6 +1265,7 @@ fn load_current_migration_state(
                 v106: row.get(36)?,
                 v107: row.get(37)?,
                 v108: row.get(38)?,
+                v109: row.get(39)?,
             })
         },
     )
@@ -2669,6 +2717,9 @@ impl Database {
             if !self.schema_migration_applied(108)? {
                 self.migrate_grok_compaction_detector_v108()?;
             }
+            if !self.schema_migration_applied(109)? {
+                self.migrate_task_board_metadata_v109()?;
+            }
             if let Err(error) =
                 crate::notification::maintain_notification_episode_retention(self.connection())
             {
@@ -3042,6 +3093,9 @@ impl Database {
         }
         if !self.schema_migration_applied(108)? {
             self.migrate_grok_compaction_detector_v108()?;
+        }
+        if !self.schema_migration_applied(109)? {
+            self.migrate_task_board_metadata_v109()?;
         }
         if let Err(error) =
             crate::notification::maintain_notification_episode_retention(self.connection())
@@ -15371,6 +15425,49 @@ impl Database {
         Ok(())
     }
 
+    fn migrate_task_board_metadata_v109(&mut self) -> Result<()> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute_batch(
+            r#"
+            ALTER TABLE task ADD COLUMN priority TEXT NOT NULL DEFAULT 'none'
+                CHECK(priority IN ('none', 'urgent', 'high', 'medium', 'low'));
+            ALTER TABLE task ADD COLUMN labels_json TEXT NOT NULL DEFAULT '[]'
+                CHECK(json_valid(labels_json) AND json_type(labels_json) = 'array');
+            ALTER TABLE task ADD COLUMN start_date TEXT;
+            ALTER TABLE task ADD COLUMN due_date TEXT;
+            ALTER TABLE task ADD COLUMN board_order INTEGER NOT NULL DEFAULT 0;
+
+            UPDATE task
+            SET board_order = 1024 * (
+                1 + (
+                    SELECT COUNT(*)
+                    FROM task AS preceding
+                    WHERE preceding.camp_id = task.camp_id
+                      AND (
+                          preceding.created_at < task.created_at
+                          OR (preceding.created_at = task.created_at AND preceding.id < task.id)
+                      )
+                )
+            );
+
+            CREATE INDEX task_board_order_idx
+                ON task(camp_id, status, board_order, id);
+
+            UPDATE rovai_data_contract
+            SET contract_version = 'v1.23', projection_schema_version = 64,
+                reset_reason = NULL, updated_at = datetime('now')
+            WHERE singleton = 1;
+
+            INSERT INTO schema_migration(version, applied_at)
+            VALUES (109, datetime('now'));
+            "#,
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     fn migrate_pending_camp_activation_v67(&mut self) -> Result<()> {
         let transaction = self
             .connection
@@ -20057,6 +20154,19 @@ fn downgrade_current_schema_to_v99_source_for_test(connection: &Connection) {
 
 #[cfg(test)]
 pub(crate) fn downgrade_current_schema_to_v98_source_for_test(connection: &Connection) {
+    connection
+        .execute_batch(
+            r#"
+            DROP INDEX task_board_order_idx;
+            ALTER TABLE task DROP COLUMN board_order;
+            ALTER TABLE task DROP COLUMN due_date;
+            ALTER TABLE task DROP COLUMN start_date;
+            ALTER TABLE task DROP COLUMN labels_json;
+            ALTER TABLE task DROP COLUMN priority;
+            DELETE FROM schema_migration WHERE version = 109;
+            "#,
+        )
+        .unwrap();
     let has_v100: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM schema_migration WHERE version = 100)",
@@ -20442,6 +20552,7 @@ mod tests {
             v106: version >= 106,
             v107: version >= 107,
             v108: version >= 108,
+            v109: version >= 109,
         }
     }
 
@@ -20452,6 +20563,12 @@ mod tests {
                 "current",
                 CURRENT_DATA_CONTRACT_VERSION,
                 CURRENT_PROJECTION_SCHEMA_VERSION,
+                109,
+            ),
+            (
+                "v1.22/schema-63",
+                V109_MIGRATION_SOURCE_DATA_CONTRACT_VERSION,
+                V109_MIGRATION_SOURCE_PROJECTION_SCHEMA_VERSION,
                 108,
             ),
             (
@@ -20736,7 +20853,7 @@ mod tests {
             )
             .expect("current contract marker should load");
 
-        assert_eq!(state, migration_state_through(108));
+        assert_eq!(state, migration_state_through(109));
         assert!(state.admits(&contract, schema));
         assert!(has_admissible_data_contract(
             &directory.join("rovai.sqlite")
@@ -22948,6 +23065,65 @@ mod tests {
                 })
                 .unwrap(),
             0
+        );
+
+        drop(database);
+        std::fs::remove_dir_all(directory).expect("temporary database should be removable");
+    }
+
+    #[test]
+    fn v109_adds_task_board_metadata_and_stable_defaults() {
+        let directory = std::env::temp_dir().join(format!("rovai-db-v109-test-{}", Uuid::new_v4()));
+        let mut database = crate::test_support::fresh_schema_database_fast_at(&directory);
+        database
+            .connection()
+            .execute_batch(
+                r#"
+                DROP INDEX task_board_order_idx;
+                ALTER TABLE task DROP COLUMN board_order;
+                ALTER TABLE task DROP COLUMN due_date;
+                ALTER TABLE task DROP COLUMN start_date;
+                ALTER TABLE task DROP COLUMN labels_json;
+                ALTER TABLE task DROP COLUMN priority;
+                DELETE FROM schema_migration WHERE version = 109;
+                UPDATE rovai_data_contract
+                SET contract_version = 'v1.22', projection_schema_version = 63
+                WHERE singleton = 1;
+                "#,
+            )
+            .unwrap();
+
+        database.migrate_task_board_metadata_v109().unwrap();
+
+        assert_table_columns(
+            database.connection(),
+            "task",
+            &[
+                "priority",
+                "labels_json",
+                "start_date",
+                "due_date",
+                "board_order",
+            ],
+            &[],
+        );
+        assert_schema_objects(
+            database.connection(),
+            "index",
+            &["task_board_order_idx"],
+            true,
+        );
+        assert_migrations_applied(database.connection(), &[109]);
+        assert_eq!(
+            database
+                .connection()
+                .query_row(
+                    "SELECT contract_version, projection_schema_version FROM rovai_data_contract WHERE singleton = 1",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )
+                .unwrap(),
+            ("v1.23".to_string(), 64)
         );
 
         drop(database);
@@ -28370,7 +28546,7 @@ mod tests {
             connection,
             &[
                 58, 59, 60, 61, 62, 67, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101,
-                102, 103, 104, 105, 106, 107, 108,
+                102, 103, 104, 105, 106, 107, 108, 109,
             ],
         );
         for table in [

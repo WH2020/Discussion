@@ -92,7 +92,8 @@ use rovai_core::{
         DiscardPendingCampCommand, ExecutionRequest, ProjectBindingKind,
         ReconcileDefaultLeadCommand, RenameCampCommand, SendUserAutomationCampMessageCommand,
         SendUserCampDraftCommand, TaskAcceptanceCriteriaUpdate, TaskAssigneeFilter,
-        TaskAssigneeUpdate, TaskListQuery, TaskStatus, UpdateTaskCommand,
+        TaskAssigneeUpdate, TaskDateUpdate, TaskLabelsUpdate, TaskListQuery, TaskPriority,
+        TaskStatus, UpdateTaskCommand,
     },
     command::{
         ActorRef, CommandEnvelope, CommandExecution, CommandGatewayError, CommandHandlerResult,
@@ -697,6 +698,12 @@ struct CreateTaskParams {
     #[serde(default)]
     acceptance_criteria: Vec<String>,
     assignee_agent_id: String,
+    #[serde(default)]
+    priority: TaskPriority,
+    #[serde(default)]
+    labels: Vec<String>,
+    start_date: Option<String>,
+    due_date: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -713,6 +720,14 @@ struct UpdateTaskParams {
     status: Option<TaskStatus>,
     #[serde(default)]
     assignee: TaskAssigneeUpdate,
+    priority: Option<TaskPriority>,
+    #[serde(default)]
+    labels: TaskLabelsUpdate,
+    #[serde(default)]
+    start_date: TaskDateUpdate,
+    #[serde(default)]
+    due_date: TaskDateUpdate,
+    board_order: Option<i64>,
     blocked_reason: Option<String>,
     completion_summary: Option<String>,
     cancel_reason: Option<String>,
@@ -5467,6 +5482,10 @@ impl Core {
                             description: params.description,
                             acceptance_criteria: params.acceptance_criteria,
                             assignee_agent_id: params.assignee_agent_id,
+                            priority: params.priority,
+                            labels: params.labels,
+                            start_date: params.start_date,
+                            due_date: params.due_date,
                         },
                     ),
                 )?;
@@ -5488,6 +5507,11 @@ impl Core {
                             acceptance_criteria: params.acceptance_criteria,
                             status: params.status,
                             assignee: params.assignee,
+                            priority: params.priority,
+                            labels: params.labels,
+                            start_date: params.start_date,
+                            due_date: params.due_date,
+                            board_order: params.board_order,
                             blocked_reason: params.blocked_reason,
                             completion_summary: params.completion_summary,
                             cancel_reason: params.cancel_reason,

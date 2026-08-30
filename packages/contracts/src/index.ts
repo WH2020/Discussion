@@ -849,6 +849,11 @@ export interface TaskView {
   title: string
   description: string
   acceptanceCriteria: string[]
+  priority: TaskPriority
+  labels: string[]
+  startDate: string | null
+  dueDate: string | null
+  boardOrder: number
   status: 'pending' | 'in_progress' | 'blocked' | 'completed' | 'cancelled'
   assigneeAgentId: string | null
   blockedReason: string | null
@@ -872,6 +877,11 @@ export interface TaskListItem {
   title: string
   status: TaskView['status']
   assigneeAgentId: string | null
+  priority: TaskPriority
+  labels: string[]
+  startDate: string | null
+  dueDate: string | null
+  boardOrder: number
   availableActions: Array<'update'>
 }
 
@@ -882,6 +892,7 @@ export interface TaskListPage {
 }
 
 export type TaskStatus = TaskView['status']
+export type TaskPriority = 'none' | 'urgent' | 'high' | 'medium' | 'low'
 
 export type TaskAssigneePatch =
   | { operation: 'unchanged' }
@@ -891,6 +902,16 @@ export type TaskAssigneePatch =
 export type TaskAcceptanceCriteriaPatch =
   | { operation: 'unchanged' }
   | { operation: 'replace'; items: string[] }
+  | { operation: 'clear' }
+
+export type TaskLabelsPatch =
+  | { operation: 'unchanged' }
+  | { operation: 'replace'; items: string[] }
+  | { operation: 'clear' }
+
+export type TaskDatePatch =
+  | { operation: 'unchanged' }
+  | { operation: 'set'; value: string }
   | { operation: 'clear' }
 
 export type StructuredCampMessageSegment =

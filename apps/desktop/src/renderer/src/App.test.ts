@@ -558,6 +558,11 @@ describe('task event projections', () => {
       title: '更新后的任务标题',
       description: '只在任务详情显示',
       acceptanceCriteria: [],
+      priority: 'none',
+      labels: [],
+      startDate: null,
+      dueDate: null,
+      boardOrder: 1024,
       status: 'completed',
       assigneeAgentId: 'agent_2',
       blockedReason: null,
@@ -695,6 +700,11 @@ describe('task event projections', () => {
       title: '较早的任务',
       description: '',
       acceptanceCriteria: [],
+      priority: 'none',
+      labels: [],
+      startDate: null,
+      dueDate: null,
+      boardOrder: 1024,
       status: 'pending',
       assigneeAgentId: null,
       blockedReason: null,
@@ -2533,6 +2543,7 @@ describe('task event projections', () => {
     expect(executionDrawerHeightFromStoredValue('not-a-height')).toBeNull()
     expect(campConversationViewFromStoredValue('conversation')).toBe('conversation')
     expect(campConversationViewFromStoredValue('world')).toBe('world')
+    expect(campConversationViewFromStoredValue('taskboard')).toBe('taskboard')
     expect(campConversationViewFromStoredValue(null)).toBe('world')
 
     const markup = renderToStaticMarkup(createElement(CampWorkspace, {
@@ -3413,7 +3424,9 @@ describe('task event projections', () => {
       }],
       tasks: [{
         taskId: 'task-1', campId: 'camp-task', title: '实现 Task 工具', description: '跨消息持续跟踪，不自动唤醒负责人。',
-        acceptanceCriteria: [], blockedReason: null, completionSummary: null, cancelReason: null,
+        acceptanceCriteria: [], priority: 'high', labels: ['Core'], startDate: null,
+        dueDate: '2026-07-30', boardOrder: 1024,
+        blockedReason: null, completionSummary: null, cancelReason: null,
         status: 'pending', assigneeAgentId: 'agent_2', createdByType: 'user',
         createdById: 'local_user', sourceAgentRunId: null, closedByType: null,
         closedById: null, closedByAgentRunId: null, version: 1,

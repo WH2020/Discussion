@@ -140,6 +140,7 @@ last_updated: 2026-08-24
 ### Durable Task 与 Run instruction
 
 - Task 是跨 Run 持续的责任对象，通知和执行是独立层。当前生命周期是 `pending | in_progress | blocked | completed | cancelled`；terminal 不可变，blocked/completed 分别需要非空原因/总结。Task 的 owner、definition、assignment 与 execution state 各自有明确权威，不由通知、Run 或发送自动推进。
+- Taskboard 是现有 Task 的读取与 mutation surface，不是第二聚合或共享队列。priority、labels、start/due date 与 Camp-local board order 属于 User/Lead 拥有的责任定义元数据；board order 不表达状态、依赖、完成度或执行次序，拖放仍服从 exact-version、字段权威和状态说明约束。
 - 只有 User 或当前 Default Lead 可创建和修改 title/description/ordered acceptance criteria、分配、释放、改派、回到 pending 或取消；创建要求显式当前 CampMember assignee，且不发送消息或唤醒 Agent。Assignee 只能以 exact version 更新自己的 `pending/in_progress/blocked/completed` 执行状态与相应说明；任一越权字段使整个 patch fail closed。
 - Unassigned 只能由 User/Lead 释放或 membership 结束的原子恢复收口产生，必须保持 `pending`，不是可抢占共享队列。成员永久移除要先在同一命令中释放其非终态任务；历史责任与已接受 Run 审计事实保留。
 - Task-linked responsibility 在 direct/A2A 的原子接受边界只准入一次，冻结 Task ID、version 和 Assignee。后续 Task 释放、改派、编辑或终态不追溯否定/改派已接受责任；但新的 membership、Presence、Runtime、permission 和 fencing 仍在每次真实执行时使用当前事实。
