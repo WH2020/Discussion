@@ -36,6 +36,7 @@ import {
   campSnapshotWithCurrentAnchor,
   campSnapshotWithAnchoredMessages,
   commandFailureMessage,
+  coreEventRefreshTargets,
   effectiveCancellingRunIds,
   effectiveCancellingTurnIds,
   notificationFocusMatchesAction,
@@ -181,6 +182,21 @@ it('retains every live Runtime event without a rolling count cap', () => {
   expect(next).toHaveLength(601)
   expect(next[0].id).toBe('live-1')
   expect(next.at(-1)?.id).toBe('live-601')
+})
+
+it('refreshes member and fixed-scene projections for Core mutation events', () => {
+  expect(coreEventRefreshTargets('members.updated')).toEqual({
+    members: true,
+    discussionScenes: false
+  })
+  expect(coreEventRefreshTargets('discussion.scenes.updated')).toEqual({
+    members: false,
+    discussionScenes: true
+  })
+  expect(coreEventRefreshTargets('agent_run.succeeded')).toEqual({
+    members: false,
+    discussionScenes: false
+  })
 })
 
 function canonicalActivity(
@@ -1396,6 +1412,7 @@ describe('task event projections', () => {
     expect(windowDragStripPage('settings')).toBe('settings')
     expect(windowDragStripPage('members')).toBe('members')
     expect(windowDragStripPage('memory')).toBe('memory')
+    expect(windowDragStripPage('logic')).toBe('logic')
     expect(windowDragStripPage('camp')).toBeNull()
   })
 
@@ -1735,9 +1752,11 @@ describe('task event projections', () => {
     expect(markup).toContain('<strong>Rovai AI</strong>')
     expect(markup).toContain('队员')
     expect(markup).toContain('记忆，2 条普通提案待确认')
+    expect(markup).toContain('项目逻辑图')
     expect(markup).toContain('data-navigation-icon="square-pen"')
     expect(markup).toContain('data-navigation-icon="users"')
     expect(markup).toContain('data-navigation-icon="brain"')
+    expect(markup).toContain('data-navigation-icon="blocks"')
     expect(markup).toContain('data-navigation-icon="settings"')
     expect(markup).toContain('id="pinned-heading">置顶')
     expect(markup).toContain('快速对话讨论')

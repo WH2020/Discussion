@@ -23,7 +23,9 @@ if (process.platform !== 'win32' || process.arch !== 'x64') {
 }
 
 const root = resolve(import.meta.dirname, '..')
-const dist = join(root, 'dist')
+const dist = process.env.ROVAI_WINDOWS_DIST_DIRECTORY
+  ? resolve(root, process.env.ROVAI_WINDOWS_DIST_DIRECTORY)
+  : join(root, 'dist')
 const packageMetadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 const requireSigned = process.argv.includes('--require-signed')
 const unpackedOnly = process.argv.includes('--unpacked-only')

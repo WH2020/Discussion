@@ -28,6 +28,7 @@ use crate::{
         DomainCommandGateway, canonical_json_digest, sealed,
     },
     db::Database,
+    discussion_scene::DISCUSSION_SCENE_CREATE_TOOL_NAME,
     execution_budget::{PRODUCT_MAX_ACCEPTED_A2A, camp_turn_execution_budget_now},
     gather::GATHER_TOOL_NAME,
     member_studio::MEMBER_CREATE_TOOL_NAME,
@@ -43,10 +44,11 @@ pub const TEAM_CREATE_TASK_TOOL_NAME: &str = "team.create_task";
 pub const TEAM_GET_TASK_TOOL_NAME: &str = "team.get_task";
 pub const TEAM_UPDATE_TASK_TOOL_NAME: &str = "team.update_task";
 pub const TEAM_LIST_TASKS_TOOL_NAME: &str = "team.list_tasks";
-pub const TEAM_TOOL_NAMES: [&str; 15] = [
+pub const TEAM_TOOL_NAMES: [&str; 16] = [
     CAMP_MESSAGE_SEND_TOOL_NAME,
     GATHER_TOOL_NAME,
     MEMBER_CREATE_TOOL_NAME,
+    DISCUSSION_SCENE_CREATE_TOOL_NAME,
     TEAM_CREATE_TASK_TOOL_NAME,
     TEAM_GET_TASK_TOOL_NAME,
     TEAM_UPDATE_TASK_TOOL_NAME,

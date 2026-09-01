@@ -17,9 +17,12 @@ import {
   buildDiscussionSceneDraft,
   createCustomDiscussionSceneId,
   discussionSceneLineInputError,
+  discussionSceneSourceLabel,
   isBuiltinDiscussionScene,
+  isConversationCreatedDiscussionScene,
   loadCustomDiscussionScenesResult,
   loadDiscussionSceneSquadsResult,
+  mergeDiscussionScenes,
   normalizeDiscussionScene,
   normalizeDiscussionSceneSquad,
   parseDiscussionSceneLines,
@@ -58,6 +61,7 @@ const BLANK_DISCUSSION_SCENE: DiscussionSceneFormDraft = {
 export function DiscussionSceneLauncher({
   participants,
   agents,
+  conversationScenes = [],
   composerSkills,
   skillCatalogStatus,
   composerDraftStatus,
@@ -69,6 +73,7 @@ export function DiscussionSceneLauncher({
 }: {
   participants: DiscussionSceneParticipant[]
   agents: AgentProfile[]
+  conversationScenes?: DiscussionSceneTemplate[]
   composerSkills: ComposerSkillOption[]
   skillCatalogStatus: 'loading' | 'ready' | 'error'
   composerDraftStatus: 'loading' | 'ready' | 'error'
@@ -104,8 +109,8 @@ export function DiscussionSceneLauncher({
   const [applyingSceneId, setApplyingSceneId] = useState<string | null>(null)
   const initialSceneAttempted = useRef<string | null>(null)
   const allScenes = useMemo(
-    () => [...BUILTIN_DISCUSSION_SCENES, ...customScenes],
-    [customScenes]
+    () => mergeDiscussionScenes(conversationScenes, customScenes),
+    [conversationScenes, customScenes]
   )
   const selectedScene = allScenes.find((scene) => scene.id === selectedSceneId)
     ?? allScenes[0]
@@ -120,6 +125,7 @@ export function DiscussionSceneLauncher({
     : null
   const launcherScenes = [
     ...BUILTIN_DISCUSSION_SCENES,
+    ...conversationScenes.slice(-2),
     ...customScenes.slice(0, 2)
   ]
   const draftReady = composerDraftStatus === 'ready'
@@ -301,10 +307,12 @@ export function DiscussionSceneLauncher({
   }
 
   const beginEditingScene = (scene: DiscussionSceneTemplate): void => {
+    const copyAsCustom = isBuiltinDiscussionScene(scene)
+      || isConversationCreatedDiscussionScene(scene)
     setEditorDraft(sceneFormDraft(
       scene,
-      isBuiltinDiscussionScene(scene) ? null : scene.id,
-      isBuiltinDiscussionScene(scene) ? `${scene.name}（自定义）` : scene.name
+      copyAsCustom ? null : scene.id,
+      copyAsCustom ? `${scene.name}（自定义）` : scene.name
     ))
     setEditorError(null)
     setConfirmingDeleteId(null)
@@ -359,7 +367,11 @@ export function DiscussionSceneLauncher({
   }
 
   const deleteSelectedScene = (): void => {
-    if (!selectedScene || isBuiltinDiscussionScene(selectedScene)) return
+    if (
+      !selectedScene
+      || isBuiltinDiscussionScene(selectedScene)
+      || isConversationCreatedDiscussionScene(selectedScene)
+    ) return
     if (confirmingDeleteId !== selectedScene.id) {
       setConfirmingDeleteId(selectedScene.id)
       return
@@ -452,7 +464,7 @@ export function DiscussionSceneLauncher({
                                 <span>{DISCUSSION_SCENE_CATEGORY_LABELS[scene.category]}</span>
                                 <strong>{scene.name}</strong>
                                 <small>
-                                  {isBuiltinDiscussionScene(scene) ? '内置' : '自定义'} · {discussionSceneSquadFor(scene.id, sceneSquads)?.memberAgentIds.length ?? 0} 人小队
+                                  {discussionSceneSourceLabel(scene)} · {discussionSceneSquadFor(scene.id, sceneSquads)?.memberAgentIds.length ?? 0} 人小队
                                 </small>
                               </button>
                             ))}
@@ -460,7 +472,7 @@ export function DiscussionSceneLauncher({
                         </aside>
                         <section className="discussion-scene-detail" aria-label="场景详情">
                           <header>
-                            <span>{DISCUSSION_SCENE_CATEGORY_LABELS[selectedScene.category]} · {isBuiltinDiscussionScene(selectedScene) ? '内置场景' : '本机自定义'}</span>
+                            <span>{DISCUSSION_SCENE_CATEGORY_LABELS[selectedScene.category]} · {discussionSceneSourceLabel(selectedScene)}</span>
                             <h3>{selectedScene.name}</h3>
                             <p>{selectedScene.summary}</p>
                           </header>
@@ -503,8 +515,8 @@ export function DiscussionSceneLauncher({
                           )}
                         </section>
                       </AppDialogBody>
-                      <AppDialogFooter note="模板只保存在本机；发送前仍可在输入框修改并添加附件。">
-                        {!isBuiltinDiscussionScene(selectedScene) && (
+                      <AppDialogFooter note="对话创建场景由 Core 持久保留；手动自定义和小队预设保存在本机。发送前仍可修改输入框并添加附件。">
+                        {!isBuiltinDiscussionScene(selectedScene) && !isConversationCreatedDiscussionScene(selectedScene) && (
                           <button
                             className={confirmingDeleteId === selectedScene.id ? 'danger-button' : 'quiet-button'}
                             type="button"
@@ -512,7 +524,7 @@ export function DiscussionSceneLauncher({
                           >{confirmingDeleteId === selectedScene.id ? '确认删除' : '删除'}</button>
                         )}
                         <button className="quiet-button" type="button" onClick={() => beginEditingScene(selectedScene)}>
-                          {isBuiltinDiscussionScene(selectedScene) ? '复制并编辑' : '编辑'}
+                          {isBuiltinDiscussionScene(selectedScene) || isConversationCreatedDiscussionScene(selectedScene) ? '复制并编辑' : '编辑'}
                         </button>
                         <button className="primary-button" type="button" disabled={!draftReady || Boolean(applyingSceneId)} onClick={() => void applyScene(selectedScene).catch(() => undefined)}>
                           {applyingSceneId === selectedScene.id ? '正在集结小队…' : hasExistingDraft ? '覆盖并填入' : '集结小队并填入'}

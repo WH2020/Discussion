@@ -247,6 +247,24 @@ export interface AgentProfile {
   removedAt: string | null
 }
 
+export type DiscussionSceneCategory =
+  | 'algorithm'
+  | 'product'
+  | 'architecture'
+  | 'design'
+  | 'general'
+
+export interface DiscussionSceneDefinition {
+  id: string
+  name: string
+  category: DiscussionSceneCategory
+  summary: string
+  roles: string[]
+  agenda: string[]
+  deliverables: string[]
+  instructions: string
+}
+
 export interface AgentProfileIdentityInput {
   displayName: string
   teamRole: string
@@ -641,6 +659,99 @@ export interface WorkspaceSelection {
 
 export interface WorkspaceInspection extends WorkspaceSelection {
   gitObservation: GitObservation
+}
+
+export type ProjectLogicNodeKind =
+  | 'actor'
+  | 'application'
+  | 'device'
+  | 'process'
+  | 'decision'
+  | 'safety'
+  | 'interface'
+  | 'service'
+  | 'core'
+  | 'data'
+  | 'integration'
+  | 'tooling'
+  | 'test'
+  | 'documentation'
+  | 'module'
+
+export type ProjectLogicRelation =
+  | 'depends_on'
+  | 'imports'
+  | 'contains'
+  | 'builds'
+  | 'tests'
+  | 'flows_to'
+  | 'branches_to'
+  | 'controls'
+  | 'syncs'
+  | 'authorizes'
+  | 'records'
+
+export interface ProjectLogicSourceEvidence {
+  path: string
+  line: number | null
+  reason: string
+}
+
+export interface ProjectLogicNode {
+  id: string
+  label: string
+  kind: ProjectLogicNodeKind
+  path: string
+  summary: string
+  language: string | null
+  fileCount: number
+  entry: boolean
+  sources: ProjectLogicSourceEvidence[]
+}
+
+export interface ProjectLogicEdge {
+  id: string
+  from: string
+  to: string
+  relation: ProjectLogicRelation
+  label: string
+  evidenceCount: number
+  sources: ProjectLogicSourceEvidence[]
+}
+
+export interface ProjectLogicScanSummary {
+  scannedFileCount: number
+  skippedFileCount: number
+  truncated: boolean
+  durationMs: number
+  languages: Array<{ name: string; fileCount: number }>
+}
+
+export type ProjectLogicAnalysisKind = 'source-code' | 'product-document' | 'mixed'
+
+export interface ProjectLogicDiagram {
+  id: string
+  title: string
+  description: string
+  nodes: ProjectLogicNode[]
+  edges: ProjectLogicEdge[]
+  primaryPath: string[]
+}
+
+export interface ProjectLogicMap {
+  schemaVersion: 1
+  project: WorkspaceSelection
+  generatedAt: string
+  nodes: ProjectLogicNode[]
+  edges: ProjectLogicEdge[]
+  primaryPath: string[]
+  warnings: string[]
+  scan: ProjectLogicScanSummary
+  /**
+   * 新版扫描器会返回分析类型和可切换业务图。字段保持可选，便于旧快照继续渲染。
+   */
+  analysisKind?: ProjectLogicAnalysisKind
+  diagrams?: ProjectLogicDiagram[]
 }
 
 export interface StartPreflightResult {
@@ -2476,6 +2587,7 @@ export type CoreMethod =
   | 'members.list'
   | 'members.get'
   | 'members.camps.list'
+  | 'discussion.scenes.list'
   | 'members.create'
   | 'members.update'
   | 'members.avatar.set'
@@ -2605,6 +2717,11 @@ export interface RovaiApi {
   }
   clipboard: {
     write(input: { text: string; html: string | null }): Promise<void>
+  }
+  projectLogic: {
+    scan(projectPath: string): Promise<ProjectLogicMap>
+    exportSvg(input: { suggestedName: string; svg: string }): Promise<string | null>
+    revealSource(input: { projectPath: string; relativePath: string }): Promise<boolean>
   }
   selectWorkspaceDirectory(): Promise<WorkspaceSelection | null>
   selectRuntimeExecutable(): Promise<string | null>

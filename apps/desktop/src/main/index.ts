@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { chmod, lstat, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron'
@@ -9,12 +9,14 @@ import type {
   CoreMethod,
   ExecutionConsolePlacement,
   MonitoringFilter,
+  NavigationSnapshot,
   RuntimeUsageSnapshot,
   NavigationPin,
   SaveMemberAvatarAssetInput,
   SettingsSection,
   StartupLocationMode,
-  ThemePreference
+  ThemePreference,
+  WorkspaceSelection
 } from '@contracts'
 import { CoreClient, desktopSkillLibraryRoot, resolveCoreBinary } from './core-client'
 import {
@@ -77,6 +79,15 @@ import {
   resolveWindowsDataRoot
 } from './windows-data-root'
 import { AppUpdatesService, type DesktopAutoUpdater } from './app-updates'
+import { scanProjectLogic } from './project-logic-scan'
+import {
+  canonicalProjectLogicRoot,
+  parseProjectLogicExportRequest,
+  projectLogicPathIsWithinRoot,
+  projectLogicPathsMatch,
+  projectLogicRootKey,
+  resolveProjectLogicSourcePath
+} from './project-logic-desktop'
 
 const mainStartupStartedAt = performance.now()
 console.info('[startup] stage=main_module_loaded elapsed_ms=0.0')
@@ -89,6 +100,7 @@ const allowedMethods = new Set<CoreMethod>([
   'members.list',
   'members.get',
   'members.camps.list',
+  'discussion.scenes.list',
   'members.create',
   'members.update',
   'members.avatar.set',
@@ -236,6 +248,29 @@ let quitDrainStarted = false
 let quitDrainCompleted = false
 const desktopSessions = new DesktopSessionRegistry()
 const memberAvatars = new MemberAvatarAssetService(coreDataPath)
+const projectLogicAuthorizedRoots = new Set<string>()
+
+async function projectLogicRootIsAuthorized(projectPath: string): Promise<boolean> {
+  const root = canonicalProjectLogicRoot(projectPath)
+  if (!root) return false
+  const key = projectLogicRootKey(root)
+  if (projectLogicAuthorizedRoots.has(key)) return true
+  try {
+    const snapshot = await core.request<NavigationSnapshot>('navigation.snapshot')
+    const known = snapshot.projects.some((project) => projectLogicPathsMatch(project.projectPath, root))
+    if (known) projectLogicAuthorizedRoots.add(key)
+    return known
+  } catch {
+    return false
+  }
+}
+
+function rememberProjectLogicWorkspace(value: unknown): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return
+  const projectPath = (value as Record<string, unknown>).projectPath
+  const root = canonicalProjectLogicRoot(projectPath)
+  if (root) projectLogicAuthorizedRoots.add(projectLogicRootKey(root))
+}
 
 async function initializeAppUpdates(): Promise<void> {
   // electron-updater eagerly touches Electron's native autoUpdater while the
@@ -537,11 +572,58 @@ app.on('second-instance', () => {
 
 ipcMain.handle('rovai:request', async (_event, method: CoreMethod, params?: unknown) => {
   if (!allowedMethods.has(method)) throw new Error(`Renderer requested an unsupported method: ${method}`)
-  return core.request(method, params)
+  const result = await core.request(method, params)
+  if (method === 'workspaces.inspect' || method === 'workspaces.validate') {
+    rememberProjectLogicWorkspace(result)
+  }
+  return result
 })
 
 ipcMain.handle('rovai:clipboard-write', (_event, input: unknown) => {
   clipboard.write(parseClipboardWriteRequest(input))
+})
+
+ipcMain.handle('rovai:project-logic-scan', async (_event, projectPath: unknown) => {
+  const root = canonicalProjectLogicRoot(projectPath)
+  if (!root || !await projectLogicRootIsAuthorized(root)) {
+    throw new Error('只能分析已在 Rovai 中选择的项目目录。')
+  }
+  return scanProjectLogic(root)
+})
+
+ipcMain.handle('rovai:project-logic-export-svg', async (_event, input: unknown) => {
+  const request = parseProjectLogicExportRequest(input)
+  if (!request) throw new Error('项目逻辑图导出内容无效。')
+  const options = {
+    title: '导出项目逻辑图',
+    buttonLabel: '导出 SVG',
+    defaultPath: join(app.getPath('documents'), request.suggestedName),
+    filters: [{ name: 'SVG 矢量图', extensions: ['svg'] }]
+  }
+  const result = mainWindow
+    ? await dialog.showSaveDialog(mainWindow, options)
+    : await dialog.showSaveDialog(options)
+  if (result.canceled || !result.filePath) return null
+  await writeFile(result.filePath, request.svg, { encoding: 'utf8', mode: 0o600 })
+  return result.filePath
+})
+
+ipcMain.handle('rovai:project-logic-reveal-source', async (_event, input: unknown) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return false
+  const record = input as Record<string, unknown>
+  const root = canonicalProjectLogicRoot(record.projectPath)
+  if (!root || !await projectLogicRootIsAuthorized(root)) return false
+  const target = resolveProjectLogicSourcePath(root, record.relativePath)
+  if (!target) return false
+  try {
+    const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(target)])
+    if (!projectLogicPathIsWithinRoot(realRoot, realTarget)) return false
+    if (!(await lstat(realTarget)).isFile()) return false
+    shell.showItemInFolder(realTarget)
+    return true
+  } catch {
+    return false
+  }
 })
 
 ipcMain.handle('rovai:appearance-get', () => appearanceSnapshot())
@@ -948,7 +1030,12 @@ ipcMain.handle('rovai:select-workspace-directory', async () => {
     ? await dialog.showOpenDialog(mainWindow, options)
     : await dialog.showOpenDialog(options)
   if (result.canceled || !result.filePaths[0]) return null
-  return core.request('workspaces.validate', { path: result.filePaths[0] })
+  const workspace = await core.request<WorkspaceSelection>('workspaces.validate', {
+    path: result.filePaths[0]
+  })
+  const root = canonicalProjectLogicRoot(workspace.projectPath)
+  if (root) projectLogicAuthorizedRoots.add(projectLogicRootKey(root))
+  return workspace
 })
 
 ipcMain.handle('rovai:select-runtime-executable', async () => {

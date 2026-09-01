@@ -47,6 +47,30 @@ describe('DiscussionSceneLauncher', () => {
     expect(markup).toContain('当前不足 2 位在队成员，将生成单人多视角提纲')
   })
 
+  it('shows a conversation-created fixed scene without remounting the launcher', () => {
+    const markup = renderToStaticMarkup(createElement(DiscussionSceneLauncher, {
+      participants: [{ agentId: 'agent-a', displayName: '沐瓦', teamRole: '负责人', isDefaultLead: true }],
+      agents: [profile('agent-a', '沐瓦')],
+      conversationScenes: [{
+        id: 'dialogue:2b945f3f-4b45-4ae5-92b2-739fce600338',
+        name: '系统故障复盘',
+        category: 'architecture',
+        summary: '审查故障证据、影响范围与恢复措施。',
+        roles: ['主持人'],
+        agenda: ['确认时间线'],
+        deliverables: ['根因结论'],
+        instructions: ''
+      }],
+      composerSkills: [],
+      skillCatalogStatus: 'ready',
+      composerDraftStatus: 'ready',
+      hasExistingDraft: false,
+      onApply: () => undefined
+    }))
+
+    expect(markup).toContain('系统故障复盘')
+  })
+
   it('does not claim Campfire orchestration when the default Lead is unavailable', () => {
     const markup = renderToStaticMarkup(createElement(DiscussionSceneLauncher, {
       participants: [

@@ -118,6 +118,10 @@ use rovai_core::{
         DiagnosticCheck, DiagnosticGroup, DiagnosticStatus, DiagnosticsReport, aggregate_counts,
         database_integrity_check, diagnostics_export_v5,
     },
+    discussion_scene::{
+        DISCUSSION_SCENE_CREATE_TOOL_NAME, DiscussionSceneCreateError, DiscussionSceneCreateInput,
+        DiscussionSceneStore, create_discussion_scene,
+    },
     execution_budget::camp_turn_execution_budget_now,
     execution_evidence::{
         AgentRunExecutionEvidence, ExecutionEvidenceService, PreparedRuntimeEvidence,
@@ -385,6 +389,7 @@ fn request_runs_outside_main_queue(method: &str) -> bool {
             | "diagnostics.check"
             | "diagnostics.export"
             | "monitoring.snapshot"
+            | "events.subscribe"
             | "runtime.installations.refresh"
             | "runtime.discovery.rescan"
             | "runtime.product.ensure"
@@ -1317,6 +1322,7 @@ struct Core {
     agent_run_tasks: Mutex<tokio::task::JoinSet<()>>,
     attachment_views: CampAttachmentViewStore,
     attachment_view_gates: Mutex<HashMap<String, Arc<RwLock<()>>>>,
+    discussion_scenes: Mutex<DiscussionSceneStore>,
     data_dir: PathBuf,
 }
 
@@ -4030,6 +4036,17 @@ impl Core {
                     );
                     Ok(payload)
                 }
+                DISCUSSION_SCENE_CREATE_TOOL_NAME => {
+                    let input = serde_json::from_value::<DiscussionSceneCreateInput>(request.input)
+                        .context("discussion.scene.create input is invalid")?;
+                    let outcome = {
+                        let mut store = self.discussion_scenes.lock().await;
+                        create_discussion_scene(&database, &authenticated_run, &mut store, input)?
+                    };
+                    evidence_replayed = outcome.replayed;
+                    evidence_receipt_id = Some(outcome.scene_id.clone());
+                    serde_json::to_value(outcome).map_err(Into::into)
+                }
                 TEAM_CREATE_TASK_TOOL_NAME => {
                     let input = serde_json::from_value::<TeamCreateTaskInput>(request.input)
                         .context("private create_task input is invalid")?;
@@ -4318,6 +4335,29 @@ impl Core {
                 }
             }
         }
+        if let Ok(payload) = &result {
+            match evidence_tool_name.as_str() {
+                MEMBER_CREATE_TOOL_NAME => emit(
+                    &self.output,
+                    "members.updated",
+                    json!({
+                        "changeKind": if evidence_replayed { "replayed" } else { "created" },
+                        "agentId": payload.get("agentId").and_then(Value::as_str),
+                        "source": "conversation",
+                    }),
+                ),
+                DISCUSSION_SCENE_CREATE_TOOL_NAME => emit(
+                    &self.output,
+                    "discussion.scenes.updated",
+                    json!({
+                        "changeKind": if evidence_replayed { "replayed" } else { "created" },
+                        "sceneId": payload.get("sceneId").and_then(Value::as_str),
+                        "source": "conversation",
+                    }),
+                ),
+                _ => {}
+            }
+        }
         match result {
             Ok(result) => TeamToolIpcResponse {
                 result: Some(result),
@@ -4369,6 +4409,10 @@ impl Core {
                     AgentProfileService::default()
                         .list_camp_memberships(&database, &params.agent_id)?,
                 )?)
+            }
+            "discussion.scenes.list" => {
+                let store = self.discussion_scenes.lock().await;
+                Ok(serde_json::to_value(store.list())?)
             }
             "members.create" => {
                 let params: UserCommandParams<CreateAgentProfileCommand> =
@@ -10792,6 +10836,7 @@ async fn run_core(
         attachment_views.root(),
         attachment_views.root_identity_digest(),
     )?;
+    let discussion_scenes = DiscussionSceneStore::open(&data_dir)?;
     eprintln!(
         "[startup] stage=database_ready duration_ms={} elapsed_ms={}",
         database_started_at.elapsed().as_millis(),
@@ -11081,6 +11126,7 @@ async fn run_core(
         agent_run_tasks: Mutex::new(tokio::task::JoinSet::new()),
         attachment_views,
         attachment_view_gates: Mutex::new(HashMap::new()),
+        discussion_scenes: Mutex::new(discussion_scenes),
         runtime_fleet,
         builtin_tool_leases,
         data_dir,
@@ -15659,6 +15705,13 @@ fn command_rejection_details(code: &str, payload: &Value) -> Option<Value> {
 }
 
 fn classify_builtin_operation_error(error: &anyhow::Error) -> (String, String, Option<Value>) {
+    if let Some(error) = error.downcast_ref::<DiscussionSceneCreateError>() {
+        return (
+            error.code.to_string(),
+            error.message.to_string(),
+            error.details.clone(),
+        );
+    }
     if let Some(error) = error.downcast_ref::<MemberCreateError>() {
         return (
             error.code.to_string(),
@@ -17746,6 +17799,7 @@ while IFS= read -r _ignored; do :; done
         assert!(request_runs_outside_main_queue("diagnostics.check"));
         assert!(request_runs_outside_main_queue("diagnostics.export"));
         assert!(request_runs_outside_main_queue("monitoring.snapshot"));
+        assert!(request_runs_outside_main_queue("events.subscribe"));
         assert!(!request_runs_outside_main_queue("monitoring.summary"));
         assert!(request_runs_outside_main_queue(
             "runtime.installations.refresh"

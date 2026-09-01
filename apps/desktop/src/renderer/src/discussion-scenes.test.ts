@@ -8,11 +8,13 @@ import {
   DISCUSSION_SCENES_STORAGE_KEY,
   buildDiscussionSceneDraft,
   discussionSceneLineInputError,
+  discussionSceneSourceLabel,
   discussionScenePrompt,
   loadCustomDiscussionScenes,
   loadCustomDiscussionScenesResult,
   loadDiscussionSceneSquads,
   loadDiscussionSceneSquadsResult,
+  mergeDiscussionScenes,
   normalizeDiscussionScene,
   normalizeDiscussionSceneSquad,
   planDiscussionSceneSquadSelection,
@@ -85,6 +87,21 @@ describe('discussion scenes', () => {
       .toBe('讨论议程每行最多 180 个字符。')
   })
 
+  it('merges conversation-created scenes with existing built-in and local scenes', () => {
+    const conversationScene: DiscussionSceneTemplate = {
+      ...customScene,
+      id: 'dialogue:2b945f3f-4b45-4ae5-92b2-739fce600338',
+      name: '系统故障复盘'
+    }
+    const merged = mergeDiscussionScenes([conversationScene, conversationScene], [customScene])
+
+    expect(merged).toHaveLength(BUILTIN_DISCUSSION_SCENES.length + 2)
+    expect(merged.at(-2)).toEqual(conversationScene)
+    expect(merged.at(-1)).toEqual(customScene)
+    expect(discussionSceneSourceLabel(conversationScene)).toBe('对话创建')
+    expect(discussionSceneSourceLabel(customScene)).toBe('本机自定义')
+  })
+
   it('persists only valid custom scenes and safely ignores damaged storage', () => {
     const storage = new MemoryDiscussionSceneStorage()
     expect(saveCustomDiscussionScenes([
@@ -128,6 +145,11 @@ describe('discussion scenes', () => {
     }
     expect(saveDiscussionSceneSquads([squad], storage)).toBe(true)
     expect(loadDiscussionSceneSquads(storage)).toEqual([squad])
+
+    expect(normalizeDiscussionSceneSquad({
+      ...squad,
+      sceneId: 'dialogue:2b945f3f-4b45-4ae5-92b2-739fce600338'
+    }).squad?.sceneId).toBe('dialogue:2b945f3f-4b45-4ae5-92b2-739fce600338')
 
     expect(normalizeDiscussionSceneSquad({
       ...squad,

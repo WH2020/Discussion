@@ -168,7 +168,7 @@ pub struct BuiltinToolCliIdentity {
     pub action: &'static str,
 }
 
-pub const BUILTIN_TOOL_CLI_IDENTITIES: [BuiltinToolCliIdentity; 15] = [
+pub const BUILTIN_TOOL_CLI_IDENTITIES: [BuiltinToolCliIdentity; 16] = [
     BuiltinToolCliIdentity {
         operation: "camp.message.send",
         group: "send",
@@ -182,6 +182,11 @@ pub const BUILTIN_TOOL_CLI_IDENTITIES: [BuiltinToolCliIdentity; 15] = [
     BuiltinToolCliIdentity {
         operation: "member.create",
         group: "member",
+        action: "create",
+    },
+    BuiltinToolCliIdentity {
+        operation: "discussion.scene.create",
+        group: "scene",
         action: "create",
     },
     BuiltinToolCliIdentity {
@@ -826,6 +831,27 @@ fn error_contracts(operation: &str) -> Vec<BuiltinToolErrorContract> {
                 });
             }
         }
+        "discussion.scene.create" => {
+            for code in [
+                "discussion_scene.invalid_creation_key",
+                "discussion_scene.invalid_definition",
+            ] {
+                errors.push(BuiltinToolErrorContract {
+                    code: code.to_string(),
+                    recovery: BuiltinToolRecovery::FixInput,
+                });
+            }
+            for code in [
+                "discussion_scene.user_confirmation_required",
+                "discussion_scene.creation_key_conflict",
+                "discussion_scene.limit_reached",
+            ] {
+                errors.push(BuiltinToolErrorContract {
+                    code: code.to_string(),
+                    recovery: BuiltinToolRecovery::Stop,
+                });
+            }
+        }
         "team.update_task" => errors.push(BuiltinToolErrorContract {
             code: "task.version_conflict".to_string(),
             recovery: BuiltinToolRecovery::RefreshThenDecide,
@@ -861,9 +887,19 @@ pub fn projection_identity(operation: &str) -> Result<&'static str> {
         "camp.message.send" => Ok("camp-message-send-v2"),
         "team.gather" => Ok("gather-v1"),
         "memory.write" => Ok("memory-write-v2"),
-        "member.create" | "team.create_task" | "team.get_task" | "team.list_tasks"
-        | "team.update_task" | "camp.list" | "camp.search" | "camp.read" | "history.search"
-        | "memory.search" | "memory.read" | "memory.view" => Ok("canonical-result-v1"),
+        "member.create"
+        | "discussion.scene.create"
+        | "team.create_task"
+        | "team.get_task"
+        | "team.list_tasks"
+        | "team.update_task"
+        | "camp.list"
+        | "camp.search"
+        | "camp.read"
+        | "history.search"
+        | "memory.search"
+        | "memory.read"
+        | "memory.view" => Ok("canonical-result-v1"),
         _ => bail!("unknown built-in operation for Agent output projection"),
     }
 }
@@ -1007,8 +1043,8 @@ mod tests {
             .iter()
             .map(|identity| (identity.group, identity.action))
             .collect::<BTreeSet<_>>();
-        assert_eq!(operations.len(), 15);
-        assert_eq!(commands.len(), 15);
+        assert_eq!(operations.len(), 16);
+        assert_eq!(commands.len(), 16);
     }
 
     #[test]

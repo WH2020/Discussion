@@ -11,6 +11,10 @@
     "canonicalResult": {"agentId":"agent_27","version":1,"avatarRef":"rovai://member-avatar/managed/2b945f3f-4b45-4ae5-92b2-739fce600338","avatarStatus":"saved"},
     "agentOutput": {"agentId":"agent_27","version":1,"avatarRef":"rovai://member-avatar/managed/2b945f3f-4b45-4ae5-92b2-739fce600338","avatarStatus":"saved"}
   },
+  "discussion.scene.create": {
+    "canonicalResult": {"sceneId":"dialogue:2b945f3f-4b45-4ae5-92b2-739fce600338","name":"系统故障复盘","category":"architecture"},
+    "agentOutput": {"sceneId":"dialogue:2b945f3f-4b45-4ae5-92b2-739fce600338","name":"系统故障复盘","category":"architecture"}
+  },
   "team.create_task": {
     "canonicalResult": {"taskId":"task_123","campId":"rvcamp_01h47kvsy5fk1shh6w1g60eecf","title":"Prepare release","description":"","acceptanceCriteria":[],"status":"pending","assigneeAgentId":"agent_27","blockedReason":null,"completionSummary":null,"cancelReason":null,"createdByType":"agent","createdById":"agent_27","sourceAgentRunId":"run_123","closedByType":null,"closedById":null,"closedByAgentRunId":null,"version":1,"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","closedAt":null,"availableActions":["update"]},
     "agentOutput": {"taskId":"task_123","title":"Prepare release","status":"pending","assigneeAgentId":"agent_27","version":1,"availableActions":["update"]}

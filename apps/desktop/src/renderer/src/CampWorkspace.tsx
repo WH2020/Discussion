@@ -62,7 +62,10 @@ import { RuntimeFailureNotice } from './RuntimeFailureNotice'
 import { identityColorToken } from './theme'
 import { availableComposerSkillsForLead } from './composer-skill-picker'
 import { DiscussionSceneLauncher } from './DiscussionSceneLauncher'
-import type { DiscussionSceneOrchestration } from './discussion-scenes'
+import type {
+  DiscussionSceneOrchestration,
+  DiscussionSceneTemplate
+} from './discussion-scenes'
 import { createStructuredMessageClipboardData } from './structured-message-clipboard'
 import { CampWorldMap } from './CampWorldMap'
 import { projectCampWorldMap } from './camp-world-map-model'
@@ -1087,6 +1090,7 @@ export function CampWorkspace({
   optimisticMessages = [],
   projectName,
   agents,
+  conversationScenes = [],
   installations = [],
   liveRuntimeEvents = [],
   busy,
@@ -1129,6 +1133,7 @@ export function CampWorkspace({
   optimisticMessages?: CampMessageView[]
   projectName: string | null
   agents: AgentProfile[]
+  conversationScenes?: DiscussionSceneTemplate[]
   installations?: AdapterInstallation[]
   liveRuntimeEvents?: LiveRuntimeEvent[]
   busy: boolean
@@ -3806,6 +3811,7 @@ export function CampWorkspace({
                   snapshot={snapshot}
                   projectName={projectName}
                   agents={agents}
+                  conversationScenes={conversationScenes}
                   firstRunCamp={firstRunCamp}
                   starterNotice={starterNotice}
                   onChoosePrompt={chooseStarterPrompt}
@@ -5929,6 +5935,7 @@ function EmptyCampWelcome({
   snapshot,
   projectName,
   agents,
+  conversationScenes,
   firstRunCamp,
   starterNotice,
   onChoosePrompt,
@@ -5944,6 +5951,7 @@ function EmptyCampWelcome({
   snapshot: CampSnapshot
   projectName: string | null
   agents: AgentProfile[]
+  conversationScenes: DiscussionSceneTemplate[]
   firstRunCamp: FirstRunCampContext | null
   starterNotice: string | null
   onChoosePrompt(prompt: string, announceDraft?: boolean): void
@@ -6050,6 +6058,7 @@ function EmptyCampWelcome({
       <DiscussionSceneLauncher
         participants={discussionParticipants}
         agents={agents}
+        conversationScenes={conversationScenes}
         composerSkills={composerSkills}
         skillCatalogStatus={skillCatalogStatus}
         composerDraftStatus={composerDraftStatus}

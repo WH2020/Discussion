@@ -17,6 +17,7 @@ import type {
   CreateCampRequest,
   CoreEvent,
   DesktopStartupSnapshot,
+  DiscussionSceneDefinition,
   EventBatch,
   ExecutionConsolePlacement,
   GeneralPreferencesSnapshot,
@@ -83,6 +84,13 @@ import { GeneralSettings } from './GeneralSettings'
 import { MemoryLibrary } from './MemoryLibrary'
 import { DiagnosticsCenter } from './DiagnosticsCenter'
 import { RuntimeMonitoring } from './RuntimeMonitoring'
+import { ProjectLogicWorkspace } from './ProjectLogicWorkspace'
+import {
+  projectAnalysisConversationName,
+  projectAnalysisSceneId,
+  seedProjectAnalysisComposerDraft,
+  type ProjectAnalysisConversationRequest
+} from './project-analysis-conversation'
 import { localizeExecutionEngineTerms } from './product-copy'
 import {
   applyAppearanceSnapshot,
@@ -125,14 +133,15 @@ export function appendLiveRuntimeEvent(
 
 type LoadState = 'loading' | 'ready' | 'error'
 type StartupStatus = 'loading' | 'waiting' | 'resolved'
-export type View = 'compose' | 'camp' | 'members' | 'memory' | 'settings'
+export type View = 'compose' | 'camp' | 'members' | 'memory' | 'logic' | 'settings'
 export type SettingsSection = NavigationSettingsSection
-export type WindowDragStripPage = Extract<View, 'compose' | 'members' | 'memory' | 'settings'>
+export type WindowDragStripPage = Extract<View, 'compose' | 'members' | 'memory' | 'logic' | 'settings'>
 
 export function windowDragStripPage(view: View): WindowDragStripPage | null {
   return view === 'compose'
     || view === 'members'
     || view === 'memory'
+    || view === 'logic'
     || view === 'settings'
     ? view
     : null
@@ -427,6 +436,16 @@ export function ControlledShutdownOverlay(): React.JSX.Element {
   )
 }
 
+export function coreEventRefreshTargets(method: string): {
+  members: boolean
+  discussionScenes: boolean
+} {
+  return {
+    members: method === 'members.updated',
+    discussionScenes: method === 'discussion.scenes.updated'
+  }
+}
+
 export function App(): React.JSX.Element {
   const [appearance, setAppearance] = useState<AppearanceSnapshot>(
     () => initialAppearanceSnapshot(document.documentElement)
@@ -435,6 +454,7 @@ export function App(): React.JSX.Element {
   const [healthLoading, setHealthLoading] = useState(false)
   const [healthAttempted, setHealthAttempted] = useState(false)
   const [agents, setAgents] = useState<AgentProfile[]>([])
+  const [conversationScenes, setConversationScenes] = useState<DiscussionSceneDefinition[]>([])
   const [installations, setInstallations] = useState<AdapterInstallation[]>([])
   const [navigation, setNavigation] = useState<NavigationSnapshot | null>(null)
   const [navigationPins, setNavigationPins] = useState<NavigationPin[]>([])
@@ -491,6 +511,9 @@ export function App(): React.JSX.Element {
   const [newConversationInitialWorkspace, setNewConversationInitialWorkspace] = useState<WorkspaceSelection | null>(null)
   const [newConversationInitialSelection, setNewConversationInitialSelection] = useState<GeneralPreferencesSnapshot['newConversationDefaults']>(null)
   const [newConversationAttention, setNewConversationAttention] = useState<string | null>(null)
+  const [newConversationInitialSceneId, setNewConversationInitialSceneId] = useState<string | null>(null)
+  const [newConversationInitialName, setNewConversationInitialName] = useState('')
+  const [newConversationProjectAnalysis, setNewConversationProjectAnalysis] = useState<ProjectAnalysisConversationRequest | null>(null)
   const [pendingDiscussionSceneLaunch, setPendingDiscussionSceneLaunch] = useState<{
     campId: string
     sceneId: string
@@ -514,6 +537,7 @@ export function App(): React.JSX.Element {
   const campViewedAcknowledgementKey = useRef<string | null>(null)
   const healthRequest = useRef<Promise<HealthStatus> | null>(null)
   const agentListRequest = useRef<Promise<AgentProfile[]> | null>(null)
+  const discussionSceneListRequest = useRef<Promise<DiscussionSceneDefinition[]> | null>(null)
   const navigationRequest = useRef<Promise<NavigationSnapshot> | null>(null)
   const overviewRequest = useRef<Promise<boolean> | null>(null)
   const startupSnapshotRequest = useRef<Promise<void> | null>(null)
@@ -641,6 +665,35 @@ export function App(): React.JSX.Element {
     return request
   }, [])
 
+  const loadDiscussionScenes = useCallback((): Promise<DiscussionSceneDefinition[]> => {
+    if (discussionSceneListRequest.current) return discussionSceneListRequest.current
+    const request = window.rovai
+      .request<DiscussionSceneDefinition[]>('discussion.scenes.list')
+      .then((nextScenes) => {
+        setConversationScenes(nextScenes)
+        return nextScenes
+      })
+    discussionSceneListRequest.current = request
+    void request.finally(() => {
+      if (discussionSceneListRequest.current === request) {
+        discussionSceneListRequest.current = null
+      }
+    }).catch(() => undefined)
+    return request
+  }, [])
+
+  const refreshAgentsAfterMutation = useCallback(async (): Promise<void> => {
+    const pending = agentListRequest.current
+    if (pending) await pending.catch(() => undefined)
+    await loadAgents()
+  }, [loadAgents])
+
+  const refreshDiscussionScenesAfterMutation = useCallback(async (): Promise<void> => {
+    const pending = discussionSceneListRequest.current
+    if (pending) await pending.catch(() => undefined)
+    await loadDiscussionScenes()
+  }, [loadDiscussionScenes])
+
   const loadNavigation = useCallback((): Promise<NavigationSnapshot> => {
     if (navigationRequest.current) return navigationRequest.current
     const request = window.rovai.request<NavigationSnapshot>('navigation.snapshot')
@@ -687,6 +740,7 @@ export function App(): React.JSX.Element {
         // projections can populate independently as their serialized Core replies arrive.
         const nextNavigationPromise = loadNavigation()
         const nextAgentsPromise = loadAgents()
+        const nextDiscussionScenesPromise = loadDiscussionScenes()
         const nextInstallationsPromise = window.rovai
           .request<AdapterInstallation[]>('runtime.installations.list')
           .then((nextInstallations) => {
@@ -724,6 +778,7 @@ export function App(): React.JSX.Element {
         setPinnedCampItems(resolvedPins.camps)
         await Promise.all([
           nextAgentsPromise,
+          nextDiscussionScenesPromise,
           nextInstallationsPromise,
           nextMemoryReviewItemsPromise
         ])
@@ -740,7 +795,7 @@ export function App(): React.JSX.Element {
       if (overviewRequest.current === request) overviewRequest.current = null
     }).catch(() => undefined)
     return request
-  }, [loadAgents, loadNavigation])
+  }, [loadAgents, loadDiscussionScenes, loadNavigation])
 
   const loadHealth = useCallback((): Promise<HealthStatus> => {
     if (healthRequest.current) return healthRequest.current
@@ -1505,6 +1560,13 @@ export function App(): React.JSX.Element {
           void Promise.all([loadHealth(), loadMemberData()]).catch(() => undefined)
         }, 80)
       }
+      const refreshTargets = coreEventRefreshTargets(event.method)
+      if (refreshTargets.members) {
+        void refreshAgentsAfterMutation().catch(() => undefined)
+      }
+      if (refreshTargets.discussionScenes) {
+        void refreshDiscussionScenesAfterMutation().catch(() => undefined)
+      }
       if (
         event.method === 'agent_run.cancelled'
         || event.method === 'agent_run.recovery_blocker_resolved'
@@ -1522,7 +1584,14 @@ export function App(): React.JSX.Element {
         }
       }
     })
-  }, [loadHealth, loadMemberData, loadOverview, refreshActiveCampSnapshot])
+  }, [
+    loadHealth,
+    loadMemberData,
+    loadOverview,
+    refreshActiveCampSnapshot,
+    refreshAgentsAfterMutation,
+    refreshDiscussionScenesAfterMutation
+  ])
 
   useEffect(() => {
     if (!campSnapshot) {
@@ -1640,7 +1709,12 @@ export function App(): React.JSX.Element {
           campEventSequenceMarker.current = batch.nextGlobalSequence
         }
       } catch (nextError) {
-        if (!cancelled) setError(errorMessage(nextError))
+        if (!cancelled) {
+          // The snapshot remains authoritative and this loop retries from the last
+          // committed sequence. A transient subscription outage is background sync
+          // degradation, not a failed user operation.
+          console.warn('Camp event subscription interrupted; retrying automatically', nextError)
+        }
       } finally {
         if (!cancelled) timer = setTimeout(() => void poll(), 1_400)
       }
@@ -1664,7 +1738,12 @@ export function App(): React.JSX.Element {
 
   const openNewConversation = (
     workspace: WorkspaceSelection | null,
-    attentionMessage: string | null = null
+    attentionMessage: string | null = null,
+    options: {
+      initialDiscussionSceneId?: string | null
+      initialName?: string
+      projectAnalysis?: ProjectAnalysisConversationRequest | null
+    } = {}
   ): void => {
     newConversationReturnFocus.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -1672,6 +1751,9 @@ export function App(): React.JSX.Element {
     setNewConversationInitialWorkspace(workspace)
     setNewConversationInitialSelection(generalPreferences?.newConversationDefaults ?? null)
     setNewConversationAttention(attentionMessage)
+    setNewConversationInitialSceneId(options.initialDiscussionSceneId ?? null)
+    setNewConversationInitialName(options.initialName ?? '')
+    setNewConversationProjectAnalysis(options.projectAnalysis ?? null)
     setNewConversationOpen(true)
   }
 
@@ -1733,6 +1815,24 @@ export function App(): React.JSX.Element {
     }
     return membersViewRef.current?.requestTransition(action) ?? Promise.resolve(false)
   }, [])
+
+  const startProjectAnalysisConversation = (
+    workspace: WorkspaceSelection,
+    request: ProjectAnalysisConversationRequest
+  ): void => {
+    void requestMemberTransition(() => {
+      cancelPendingCampActivation()
+      openNewConversation(
+        workspace,
+        '已带入当前逻辑图与专项分析目标。请确认本次队员与负责人后创建对话。',
+        {
+          initialDiscussionSceneId: projectAnalysisSceneId(request.mode),
+          initialName: projectAnalysisConversationName(request),
+          projectAnalysis: request
+        }
+      )
+    })
+  }
 
   const chooseView = (nextView: View): void => {
     const commit = (): void => {
@@ -2290,7 +2390,8 @@ export function App(): React.JSX.Element {
 
   async function createCamp(
     draft: Omit<CreateCampRequest, 'commandId'>,
-    discussionSceneId: string | null = null
+    discussionSceneId: string | null = null,
+    projectAnalysis: ProjectAnalysisConversationRequest | null = null
   ): Promise<void> {
     setBusy('create-camp')
     try {
@@ -2304,7 +2405,52 @@ export function App(): React.JSX.Element {
       if (result.status === 'rejected') throw new Error(commandFailureMessage(result))
       const campId = stringField(result.payload, 'campId')
       if (!campId) throw new Error('会话已创建，但暂时无法打开。请刷新会话列表后重试。')
-      setPendingDiscussionSceneLaunch(discussionSceneId ? { campId, sceneId: discussionSceneId } : null)
+      if (projectAnalysis) {
+        try {
+          await seedProjectAnalysisComposerDraft(
+            campId,
+            projectAnalysis,
+            () => window.rovai.request<CampComposerDraftView>(
+              'camp.composerDraft.get',
+              { campId }
+            ),
+            (expectedRevision, content) => window.rovai.request<CampComposerDraftView>(
+              'camp.composerDraft.save',
+              {
+                campId,
+                expectedRevision,
+                content,
+                continuationSourceMessageId: null
+              }
+            )
+          )
+        } catch (nextError) {
+          let rollbackFailed = false
+          try {
+            const rollback = await window.rovai.request<StoredCommandResult>(
+              'camps.discardPending',
+              {
+                commandId: crypto.randomUUID(),
+                command: { campId }
+              }
+            )
+            rollbackFailed = rollback.status === 'rejected'
+            if (!rollbackFailed) await loadNavigation()
+          } catch {
+            rollbackFailed = true
+          }
+          throw new Error(
+            `专项分析草稿未能准备：${errorMessage(nextError)}`
+            + (rollbackFailed ? ' 已创建的空白对话可能仍在项目列表中，请刷新后检查。' : '')
+          )
+        }
+      }
+      setPendingDiscussionSceneLaunch(
+        discussionSceneId && !projectAnalysis ? { campId, sceneId: discussionSceneId } : null
+      )
+      setNewConversationInitialSceneId(null)
+      setNewConversationInitialName('')
+      setNewConversationProjectAnalysis(null)
       setNewConversationOpen(false)
       await activateCamp(campId, { reconcileDefaultLead: false })
     } finally {
@@ -2575,6 +2721,7 @@ export function App(): React.JSX.Element {
     camp: 'task-content camp-content',
     members: 'members-content',
     memory: 'memory-content',
+    logic: 'logic-content',
     settings: 'settings-content'
   }
   const startupGateVisible = startupGateShouldBeVisible(startupSnapshot)
@@ -2712,6 +2859,7 @@ export function App(): React.JSX.Element {
           setMemoryFocusId(null)
           chooseView('memory')
         }}
+        onProjectLogic={() => chooseView('logic')}
         pendingMemoryCount={pendingMemoryCount}
         onSettings={() => chooseView('settings')}
         onSettingsSectionChange={chooseSettingsSection}
@@ -2796,6 +2944,7 @@ export function App(): React.JSX.Element {
               .map((entry) => entry.message)}
             projectName={activeCampProject?.name ?? null}
             agents={agents}
+            conversationScenes={conversationScenes}
             installations={installations}
             liveRuntimeEvents={liveRuntimeEvents}
             busy={busy === 'camp-message' || busy === 'change-default-lead' || busy === 'add-camp-members' || busy?.startsWith('action-approval-') === true}
@@ -2858,6 +3007,36 @@ export function App(): React.JSX.Element {
             onReviewDrawerSignalConsumed={() => setMemoryReviewDrawerSignal(0)}
             onPendingCountChange={setPendingMemoryCount}
             onReady={commitMemoryLocation}
+          />
+        )}
+
+        {!startupGateVisible && view === 'logic' && (
+          <ProjectLogicWorkspace
+            project={selectedCurrentProject
+              ? { name: selectedCurrentProject.name, projectPath: selectedCurrentProject.projectPath }
+              : null}
+            agents={agents}
+            analysisCampIds={selectedCurrentProject?.recentCamps
+              .filter((camp) => camp.title.startsWith('项目逻辑分析 · '))
+              .map((camp) => camp.id) ?? []}
+            onChooseProject={() => void openProject()}
+            onOpenAnalysisCamp={(campId) => {
+              void requestMemberTransition(() => activateCamp(campId, {
+                reconcileDefaultLead: false
+              }).then(() => undefined))
+            }}
+            onConfigureRuntime={() => {
+              const target = [...agents]
+                .filter((agent) => agent.presence === 'present')
+                .sort((left, right) => (
+                  Number(right.runtimeConfiguration !== null) - Number(left.runtimeConfiguration !== null)
+                  || left.memberOrder - right.memberOrder
+                ))[0]
+              if (target) configureMemberRuntime(target.agentId)
+              else chooseView('members')
+            }}
+            onAnalysisCampReady={() => { void loadNavigation().catch(() => undefined) }}
+            onNotify={setToast}
           />
         )}
 
@@ -2936,19 +3115,29 @@ export function App(): React.JSX.Element {
         open={newConversationOpen}
         initialWorkspace={newConversationInitialWorkspace}
         initialSelection={newConversationInitialSelection}
+        initialDiscussionSceneId={newConversationInitialSceneId}
+        initialName={newConversationInitialName}
         attentionMessage={newConversationAttention}
         projects={visibleNavigation?.projects ?? []}
         preflight={campCreationPreflight}
         agents={agents}
+        conversationScenes={conversationScenes}
         busy={busy === 'create-camp' || busy === 'open-project'}
         returnFocusElement={newConversationReturnFocus.current}
-        onOpenChange={setNewConversationOpen}
+        onOpenChange={(open) => {
+          setNewConversationOpen(open)
+          if (!open) {
+            setNewConversationInitialSceneId(null)
+            setNewConversationInitialName('')
+            setNewConversationProjectAnalysis(null)
+          }
+        }}
         onChooseWorkspaceDirectory={chooseWorkspaceDirectory}
         onWorkspaceSelected={(workspace) => restoreNavigationProject(workspace.projectPath)}
         onCreate={({ discussionSceneId, ...draft }) => createCamp({
           ...draft,
           activationState: campActivationStateForCreation('dialog')
-        }, discussionSceneId)}
+        }, discussionSceneId, newConversationProjectAnalysis)}
       />
       <NotificationAttentionController
         enabled={startupStatus === 'resolved'}

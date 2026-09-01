@@ -13,12 +13,13 @@ import type {
 import { MemberAvatar } from './MemberAvatar'
 import { NavigationIcon } from './NavigationIcon'
 import {
-  BUILTIN_DISCUSSION_SCENES,
   DISCUSSION_SCENE_CATEGORY_LABELS,
   discussionSceneSquadFor,
   loadCustomDiscussionScenesResult,
   loadDiscussionSceneSquadsResult,
+  mergeDiscussionScenes,
   planDiscussionSceneSquadSelection,
+  type DiscussionSceneSquadSelectionPlan,
   type DiscussionSceneSquadPreset,
   type DiscussionSceneTemplate
 } from './discussion-scenes'
@@ -33,10 +34,13 @@ export function NewConversationDialog({
   open,
   initialWorkspace,
   initialSelection,
+  initialDiscussionSceneId = null,
+  initialName = '',
   attentionMessage,
   projects,
   preflight,
   agents,
+  conversationScenes = [],
   busy,
   returnFocusElement,
   onOpenChange,
@@ -47,10 +51,13 @@ export function NewConversationDialog({
   open: boolean
   initialWorkspace: WorkspaceSelection | null
   initialSelection?: NewConversationDefaults | null
+  initialDiscussionSceneId?: string | null
+  initialName?: string
   attentionMessage?: string | null
   projects: ProjectNavigationGroup[]
   preflight: CampCreationPreflight
   agents: AgentProfile[]
+  conversationScenes?: DiscussionSceneTemplate[]
   busy: boolean
   returnFocusElement: HTMLElement | null
   onOpenChange(open: boolean): void
@@ -89,8 +96,8 @@ export function NewConversationDialog({
     selectedMemberIds.includes(member.agentId)
   )
   const allScenes = useMemo(
-    () => [...BUILTIN_DISCUSSION_SCENES, ...customScenes],
-    [customScenes]
+    () => mergeDiscussionScenes(conversationScenes, customScenes),
+    [conversationScenes, customScenes]
   )
   const selectedScene = selectedSceneId
     ? allScenes.find((scene) => scene.id === selectedSceneId) ?? null
@@ -104,24 +111,58 @@ export function NewConversationDialog({
   useEffect(() => {
     if (!open) return
     const { memberIds, leadId: recommendedLead } = initialSelectionPlan
+    const fallback = {
+      memberAgentIds: memberIds,
+      defaultLeadAgentId: recommendedLead
+    }
+    const sceneLoad = loadCustomDiscussionScenesResult()
+    const squadLoad = loadDiscussionSceneSquadsResult()
+    const availableScenes = mergeDiscussionScenes(conversationScenes, sceneLoad.scenes)
+    const nextSceneId = initialDiscussionSceneId
+      && availableScenes.some((scene) => scene.id === initialDiscussionSceneId)
+      ? initialDiscussionSceneId
+      : null
+    const initialSquad = nextSceneId
+      ? discussionSceneSquadFor(nextSceneId, squadLoad.squads)
+      : null
+    const initialPlan = nextSceneId
+      ? planDiscussionSceneSquadSelection(
+          initialSquad,
+          preflight.presentMembers.map((member) => member.agentId),
+          fallback
+        )
+      : null
     setWorkspace(initialWorkspace)
     setGitInspectionStatus(hasGitObservation(initialWorkspace) ? 'ready' : 'idle')
     setProjectMenuOpen(false)
     setSceneMenuOpen(false)
     setMemberMenuOpen(false)
-    setSelectedMemberIds(memberIds)
-    setLeadId(recommendedLead)
-    setOptionalOpen(false)
-    setName('')
+    setSelectedMemberIds(initialPlan?.memberAgentIds ?? memberIds)
+    setLeadId(initialPlan?.defaultLeadAgentId ?? recommendedLead)
+    if (initialName) setOptionalOpen(true)
+    else setOptionalOpen(false)
+    setName(limitDraftNameInput(initialName))
     setMemberError(null)
     setSubmitError(null)
-    setSelectedSceneId(null)
-    const sceneLoad = loadCustomDiscussionScenesResult()
-    const squadLoad = loadDiscussionSceneSquadsResult()
+    setSelectedSceneId(nextSceneId)
     setCustomScenes(sceneLoad.scenes)
     setSceneSquads(squadLoad.squads)
-    setSceneNotice(sceneLoad.warning ?? squadLoad.warning)
-  }, [initialSelectionPlan, initialWorkspace, open])
+    setSceneNotice(
+      sceneLoad.warning
+      ?? squadLoad.warning
+      ?? (initialDiscussionSceneId && !nextSceneId
+        ? '预选的专项分析场景当前不可用，已保留默认队员。'
+        : nextSceneId && initialPlan
+          ? discussionSceneSquadSelectionNotice(initialSquad, initialPlan)
+          : null)
+    )
+  }, [
+    initialDiscussionSceneId,
+    initialName,
+    initialSelectionPlan,
+    initialWorkspace,
+    open
+  ])
 
   const pendingGitInspectionPath = workspace && !hasGitObservation(workspace)
     ? workspace.projectPath
@@ -189,13 +230,7 @@ export function NewConversationDialog({
     setSelectedMemberIds(plan.memberAgentIds)
     setLeadId(plan.defaultLeadAgentId)
     setMemberError(null)
-    setSceneNotice(!squad
-      ? '此场景尚未配置预设小队，已沿用默认队员；创建后仍会自动填入场景提纲。'
-      : plan.appliedPreset
-        ? plan.missingAgentIds.length > 0
-          ? `已应用可用的预设队员；另有 ${plan.missingAgentIds.length} 位配置成员当前不可用。`
-          : '已应用场景预设小队；你仍可为本次会话临时调整。'
-        : '预设小队当前不可用，已沿用默认队员。')
+    setSceneNotice(discussionSceneSquadSelectionNotice(squad, plan))
   }
 
   const chooseWorkspaceDirectory = async (): Promise<void> => {
@@ -792,6 +827,22 @@ export function planInitialCampSelection(
     memberIds,
     leadId
   }
+}
+
+function discussionSceneSquadSelectionNotice(
+  squad: DiscussionSceneSquadPreset | null,
+  plan: DiscussionSceneSquadSelectionPlan
+): string {
+  if (!squad) {
+    return '此场景尚未配置预设小队，已沿用默认队员；创建后仍会填入场景提纲。'
+  }
+  if (!plan.appliedPreset) {
+    return '预设小队当前没有可用队员，已沿用默认队员。'
+  }
+  if (plan.missingAgentIds.length > 0) {
+    return `已应用可用的预设队员；另有 ${plan.missingAgentIds.length} 位配置成员当前不可用。`
+  }
+  return '已应用场景预设小队；你仍可为本次会话临时调整。'
 }
 
 export function normalizeDraftName(value: string): string {

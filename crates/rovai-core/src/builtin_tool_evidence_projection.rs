@@ -6,6 +6,7 @@ use crate::{
         CAMP_LIST_TOOL_NAME, CAMP_READ_TOOL_NAME, CAMP_SEARCH_TOOL_NAME, HISTORY_SEARCH_TOOL_NAME,
     },
     command::canonical_json_digest,
+    discussion_scene::DISCUSSION_SCENE_CREATE_TOOL_NAME,
     gather::GATHER_TOOL_NAME,
     member_studio::MEMBER_CREATE_TOOL_NAME,
     memory_retrieval::{MEMORY_READ_TOOL_NAME, MEMORY_SEARCH_TOOL_NAME, MEMORY_VIEW_TOOL_NAME},
@@ -121,6 +122,21 @@ fn project_input(operation: &str, input: &Value) -> Result<Value> {
                 "avatarFilePresent".to_string(),
                 json!(input.get("avatarFile").and_then(Value::as_str).is_some()),
             );
+        }
+        DISCUSSION_SCENE_CREATE_TOOL_NAME => {
+            insert_identifier(&mut projected, "creationKey", input.get("creationKey"));
+            insert_semantic_text(&mut projected, "name", input.get("name"));
+            insert_enum(&mut projected, "category", input.get("category"));
+            insert_semantic_text(&mut projected, "summary", input.get("summary"));
+            insert_bounded_semantic_array(&mut projected, "roles", input.get("roles"), 180);
+            insert_bounded_semantic_array(&mut projected, "agenda", input.get("agenda"), 180);
+            insert_bounded_semantic_array(
+                &mut projected,
+                "deliverables",
+                input.get("deliverables"),
+                180,
+            );
+            insert_semantic_text(&mut projected, "instructions", input.get("instructions"));
         }
         TEAM_CREATE_TASK_TOOL_NAME => {
             insert_semantic_text(&mut projected, "title", input.get("title"));
@@ -323,6 +339,11 @@ fn project_result(operation: &str, result: &Value) -> Result<Value> {
             insert_i64(&mut projected, "version", result.get("version"));
             insert_identifier(&mut projected, "avatarRef", result.get("avatarRef"));
             insert_enum(&mut projected, "avatarStatus", result.get("avatarStatus"));
+        }
+        DISCUSSION_SCENE_CREATE_TOOL_NAME => {
+            insert_identifier(&mut projected, "sceneId", result.get("sceneId"));
+            insert_semantic_text(&mut projected, "name", result.get("name"));
+            insert_enum(&mut projected, "category", result.get("category"));
         }
         TEAM_CREATE_TASK_TOOL_NAME | TEAM_GET_TASK_TOOL_NAME | TEAM_UPDATE_TASK_TOOL_NAME => {
             project_task_result(&mut projected, result);
@@ -1037,6 +1058,37 @@ mod tests {
         let encoded = serde_json::to_string(&projected).unwrap();
         assert!(!encoded.contains("/private/run/avatar.png"));
         assert!(!encoded.contains("avatarFile\""));
+    }
+
+    #[test]
+    fn discussion_scene_create_projects_the_confirmed_definition_and_stable_result() {
+        let projected = projection(
+            DISCUSSION_SCENE_CREATE_TOOL_NAME,
+            json!({
+                "creationKey": "2b945f3f-4b45-4ae5-92b2-739fce600338",
+                "name": "System incident review",
+                "category": "architecture",
+                "summary": "Review evidence, impact, and recovery.",
+                "roles": ["Facilitator", "Reliability engineer"],
+                "agenda": ["Confirm timeline", "Validate root cause"],
+                "deliverables": ["Root cause", "Action list"],
+                "instructions": "Separate facts from assumptions."
+            }),
+            json!({
+                "sceneId": "dialogue:2b945f3f-4b45-4ae5-92b2-739fce600338",
+                "name": "System incident review",
+                "category": "architecture"
+            }),
+        );
+        assert_eq!(
+            projected["canonicalResult"]["sceneId"],
+            "dialogue:2b945f3f-4b45-4ae5-92b2-739fce600338"
+        );
+        assert_eq!(
+            projected["canonicalInput"]["agenda"][1],
+            "Validate root cause"
+        );
+        assert!(projected["canonicalResult"].get("created").is_none());
     }
 
     #[test]

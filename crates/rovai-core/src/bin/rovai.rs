@@ -407,7 +407,7 @@ fn invocation_identity(args: &[String]) -> Option<BuiltinToolCliIdentity> {
 }
 
 fn is_family_help(args: &[String]) -> bool {
-    matches!(args, [family, help] if help == "--help" && matches!(family.as_str(), "member" | "task" | "camp" | "history" | "memory"))
+    matches!(args, [family, help] if help == "--help" && matches!(family.as_str(), "member" | "scene" | "task" | "camp" | "history" | "memory"))
 }
 
 fn load_context() -> Result<BuiltinToolCliContext> {
@@ -1417,7 +1417,7 @@ fn print_root_help() {
 }
 
 fn root_help_text(managed_runtime: bool) -> String {
-    let mut text = "Rovai CLI\n\nAgent operations:\n  rovai send\n  rovai gather\n  rovai member create\n  rovai task create|get|list|update\n  rovai camp list|search|read\n  rovai history search\n  rovai memory view|search|read|write\n\nRun an Agent operation's exact `--help` for its closed inputs. Each Agent operation supports direct flags, JSON stdin/heredoc, or --input-file <path>.\n".to_string();
+    let mut text = "Rovai CLI\n\nAgent operations:\n  rovai send\n  rovai gather\n  rovai member create\n  rovai scene create\n  rovai task create|get|list|update\n  rovai camp list|search|read\n  rovai history search\n  rovai memory view|search|read|write\n\nRun an Agent operation's exact `--help` for its closed inputs. Each Agent operation supports direct flags, JSON stdin/heredoc, or --input-file <path>.\n".to_string();
     if !managed_runtime {
         text.push_str("\nUser Automation:\n  rovai app --help\n\nAgent operations keep their process-private transport. `rovai app` uses the running Desktop App's separate User Automation transport.\n");
     }
@@ -2015,6 +2015,7 @@ fn operation_help_examples(operation: &str) -> &'static [&'static str] {
             "rovai member create --creation-key 2b945f3f-4b45-4ae5-92b2-739fce600338 --display-name 'Nova' --team-role 'Researcher'",
             "rovai member create --input-file confirmed-member.json",
         ],
+        "discussion.scene.create" => &["rovai scene create --input-file confirmed-scene.json"],
         "team.create_task" => {
             &["rovai task create --title 'Prepare release notes' --assignee-agent-id agent_27"]
         }
@@ -2183,7 +2184,7 @@ mod tests {
         );
         assert!(builtin_tool_identity_by_command("tool", "list").is_none());
         assert!(builtin_tool_identity_by_command("tool", "describe").is_none());
-        for family in ["member", "task", "camp", "history", "memory"] {
+        for family in ["member", "scene", "task", "camp", "history", "memory"] {
             let args = [family.to_string(), "--help".to_string()];
             assert!(operation_help(&args).unwrap().is_none());
             assert!(is_family_help(&args));
@@ -2191,11 +2192,12 @@ mod tests {
     }
 
     #[test]
-    fn exact_help_surface_covers_all_fifteen_operations_and_no_family_aliases() {
+    fn exact_help_surface_covers_all_sixteen_operations_and_no_family_aliases() {
         let exact_paths: &[&[&str]] = &[
             &["send", "--help"],
             &["gather", "--help"],
             &["member", "create", "--help"],
+            &["scene", "create", "--help"],
             &["task", "create", "--help"],
             &["task", "get", "--help"],
             &["task", "list", "--help"],
@@ -2209,7 +2211,7 @@ mod tests {
             &["memory", "read", "--help"],
             &["memory", "write", "--help"],
         ];
-        assert_eq!(exact_paths.len(), 15);
+        assert_eq!(exact_paths.len(), 16);
         for path in exact_paths {
             let args = path
                 .iter()
@@ -2220,7 +2222,7 @@ mod tests {
                 "missing exact help for {path:?}"
             );
         }
-        for family in ["member", "task", "camp", "history", "memory"] {
+        for family in ["member", "scene", "task", "camp", "history", "memory"] {
             let args = vec![family.to_string(), "--help".to_string()];
             assert!(operation_help(&args).unwrap().is_none());
             assert!(is_family_help(&args));

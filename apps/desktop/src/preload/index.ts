@@ -232,6 +232,17 @@ const api: RovaiApi = {
       return ipcRenderer.invoke('rovai:clipboard-write', input)
     }
   },
+  projectLogic: {
+    scan(projectPath) {
+      return ipcRenderer.invoke('rovai:project-logic-scan', projectPath)
+    },
+    exportSvg(input) {
+      return ipcRenderer.invoke('rovai:project-logic-export-svg', input)
+    },
+    revealSource(input) {
+      return ipcRenderer.invoke('rovai:project-logic-reveal-source', input)
+    }
+  },
   selectWorkspaceDirectory() {
     return ipcRenderer.invoke('rovai:select-workspace-directory')
   },

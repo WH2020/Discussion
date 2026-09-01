@@ -196,6 +196,7 @@ export function CampNavigation({
   onNewConversation,
   onMembers,
   onMemory,
+  onProjectLogic = () => undefined,
   pendingMemoryCount,
   onSettings,
   onSettingsSectionChange = () => undefined,
@@ -211,7 +212,7 @@ export function CampNavigation({
   onDelete,
   onError
 }: {
-  view: 'compose' | 'camp' | 'members' | 'memory' | 'settings'
+  view: 'compose' | 'camp' | 'members' | 'memory' | 'logic' | 'settings'
   state: 'loading' | 'ready' | 'error'
   navigation: NavigationSnapshot | null
   activeCampId: string | null
@@ -226,6 +227,7 @@ export function CampNavigation({
   onNewConversation(): void
   onMembers(): void
   onMemory(): void
+  onProjectLogic?(): void
   pendingMemoryCount: number
   onSettings(): void
   onSettingsSectionChange?(section: NavigationSettingsSection): void
@@ -545,6 +547,16 @@ export function CampNavigation({
                   >
                     <span className="rail-glyph" aria-hidden="true"><NavigationIcon name="brain" /></span><span className="rail-label">记忆</span>
                     {pendingMemoryCount > 0 && <i className="rail-badge-dot" aria-hidden="true" />}
+                  </button>
+                  <button
+                    className={`rail-button ${view === 'logic' ? 'active' : ''}`}
+                    type="button"
+                    aria-current={view === 'logic' ? 'page' : undefined}
+                    aria-label="项目逻辑图"
+                    title="项目逻辑图"
+                    onClick={onProjectLogic}
+                  >
+                    <span className="rail-glyph" aria-hidden="true"><NavigationIcon name="blocks" /></span><span className="rail-label">逻辑图</span>
                   </button>
                 </nav>
                 <button className="conversation-jump" type="button" onClick={() => setPaletteOpen(true)}>

@@ -1,4 +1,8 @@
-import type { StructuredCampMessageContent } from '@contracts'
+import type {
+  DiscussionSceneCategory as ContractDiscussionSceneCategory,
+  DiscussionSceneDefinition,
+  StructuredCampMessageContent
+} from '@contracts'
 
 export const DISCUSSION_SCENES_STORAGE_KEY = 'rovai.discussion-scenes.v1'
 export const DISCUSSION_SCENES_RECOVERY_KEY = 'rovai.discussion-scenes.recovery.v1'
@@ -15,23 +19,8 @@ const MAX_LIST_ITEM_LENGTH = 180
 const MAX_DISCUSSION_SCENE_SQUADS = 80
 export const MAX_DISCUSSION_SCENE_SQUAD_MEMBERS = 24
 
-export type DiscussionSceneCategory =
-  | 'algorithm'
-  | 'product'
-  | 'architecture'
-  | 'design'
-  | 'general'
-
-export interface DiscussionSceneTemplate {
-  id: string
-  name: string
-  category: DiscussionSceneCategory
-  summary: string
-  roles: string[]
-  agenda: string[]
-  deliverables: string[]
-  instructions: string
-}
+export type DiscussionSceneCategory = ContractDiscussionSceneCategory
+export type DiscussionSceneTemplate = DiscussionSceneDefinition
 
 export interface DiscussionSceneParticipant {
   agentId: string
@@ -175,6 +164,37 @@ export function isBuiltinDiscussionScene(scene: DiscussionSceneTemplate): boolea
   return scene.id.startsWith('builtin:')
 }
 
+export function isConversationCreatedDiscussionScene(
+  scene: DiscussionSceneTemplate
+): boolean {
+  return scene.id.startsWith('dialogue:')
+}
+
+export function discussionSceneSourceLabel(scene: DiscussionSceneTemplate): string {
+  if (isBuiltinDiscussionScene(scene)) return '内置'
+  if (isConversationCreatedDiscussionScene(scene)) return '对话创建'
+  return '本机自定义'
+}
+
+export function mergeDiscussionScenes(
+  conversationScenes: readonly DiscussionSceneTemplate[],
+  customScenes: readonly DiscussionSceneTemplate[]
+): DiscussionSceneTemplate[] {
+  const merged: DiscussionSceneTemplate[] = []
+  const seen = new Set<string>()
+  for (const candidate of [
+    ...BUILTIN_DISCUSSION_SCENES,
+    ...conversationScenes,
+    ...customScenes
+  ]) {
+    const { scene } = normalizeDiscussionScene(candidate)
+    if (!scene || seen.has(scene.id)) continue
+    seen.add(scene.id)
+    merged.push(scene)
+  }
+  return merged
+}
+
 export function createCustomDiscussionSceneId(randomId?: string): string {
   const suffix = randomId ?? globalThis.crypto?.randomUUID?.()
   if (!suffix) throw new Error('当前环境无法生成场景标识。')
@@ -188,7 +208,11 @@ export function normalizeDiscussionScene(input: unknown): {
   if (!isRecord(input)) return { scene: null, error: '场景数据格式无效。' }
 
   const id = normalizedText(input.id, 120)
-  if (!id || (!id.startsWith('custom:') && !id.startsWith('builtin:'))) {
+  if (!id || (
+    !id.startsWith('custom:')
+    && !id.startsWith('builtin:')
+    && !id.startsWith('dialogue:')
+  )) {
     return { scene: null, error: '场景标识无效。' }
   }
 
@@ -373,7 +397,11 @@ export function normalizeDiscussionSceneSquad(input: unknown): {
 } {
   if (!isRecord(input)) return { squad: null, error: '预设小队数据格式无效。' }
   const sceneId = normalizedIdentifier(input.sceneId, 120)
-  if (!sceneId || (!sceneId.startsWith('custom:') && !sceneId.startsWith('builtin:'))) {
+  if (!sceneId || (
+    !sceneId.startsWith('custom:')
+    && !sceneId.startsWith('builtin:')
+    && !sceneId.startsWith('dialogue:')
+  )) {
     return { squad: null, error: '预设小队的场景标识无效。' }
   }
   if (!Array.isArray(input.memberAgentIds)) {

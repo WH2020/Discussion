@@ -9,6 +9,10 @@ use crate::{
         HistorySearchInput,
     },
     camp_message_send_teaching::CAMP_MESSAGE_SEND_SUMMARY,
+    discussion_scene::{
+        DISCUSSION_SCENE_CREATE_TOOL_NAME, DiscussionSceneCreateInput,
+        discussion_scene_create_input_schema,
+    },
     gather::GATHER_TOOL_NAME,
     member_studio::{MEMBER_CREATE_TOOL_NAME, MemberCreateInput, member_create_input_schema},
     memory_retrieval::{
@@ -38,6 +42,9 @@ pub fn validate_builtin_tool_input(canonical_name: &str, input: &Value) -> Resul
         GATHER_TOOL_NAME => serde_json::from_value::<GatherInput>(input.clone()).map(|_| ()),
         MEMBER_CREATE_TOOL_NAME => {
             serde_json::from_value::<MemberCreateInput>(input.clone()).map(|_| ())
+        }
+        DISCUSSION_SCENE_CREATE_TOOL_NAME => {
+            serde_json::from_value::<DiscussionSceneCreateInput>(input.clone()).map(|_| ())
         }
         TEAM_CREATE_TASK_TOOL_NAME => {
             serde_json::from_value::<TeamCreateTaskInput>(input.clone()).map(|_| ())
@@ -365,6 +372,22 @@ fn member_create_success_schema() -> Value {
             "version": {"type": "integer", "minimum": 1},
             "avatarRef": {"type": ["string", "null"]},
             "avatarStatus": {"type": "string", "enum": ["saved", "not_requested"]}
+        }
+    })
+}
+
+fn discussion_scene_create_success_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sceneId", "name", "category"],
+        "properties": {
+            "sceneId": {"type": "string"},
+            "name": {"type": "string"},
+            "category": {
+                "type": "string",
+                "enum": ["algorithm", "product", "architecture", "design", "general"]
+            }
         }
     })
 }
@@ -736,6 +759,13 @@ pub fn builtin_tool_definitions() -> Vec<Value> {
             "description": "Create one durable Rovai member from the final member card only after the user explicitly confirms it in this direct user-triggered run. Reuse creationKey only for an exact retry. avatarFile is optional and must name a run-readable local PNG or JPEG; Rovai safely normalizes and imports it without persisting the path. If image preparation is unavailable or fails, retry without avatarFile to use the default avatar.",
             "inputSchema": member_create_input_schema(),
             "outputSchema": member_create_success_schema()
+        }),
+        json!({
+            "name": DISCUSSION_SCENE_CREATE_TOOL_NAME,
+            "title": "Create a confirmed fixed discussion scene",
+            "description": "Create one durable, globally selectable discussion scene only after the user explicitly asks to save it and confirms the final scene card in this direct user-triggered run. Before calling, show the proposed name, category, summary, roles, agenda, deliverables, and optional instructions. Reuse creationKey only for an exact retry. This creates a scene template; it does not send a message, start execution, or change any Camp membership.",
+            "inputSchema": discussion_scene_create_input_schema(),
+            "outputSchema": discussion_scene_create_success_schema()
         }),
         json!({
             "name": TEAM_CREATE_TASK_TOOL_NAME,

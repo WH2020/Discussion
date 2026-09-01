@@ -28,6 +28,7 @@ pub mod current_input_skill;
 pub mod current_user;
 pub mod db;
 pub mod diagnostics;
+pub mod discussion_scene;
 pub mod execution_budget;
 pub mod execution_evidence;
 pub mod gather;
